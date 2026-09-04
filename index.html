@@ -1,0 +1,1733 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#16324f" />
+  <meta name="description" content="Responsive warehouse management system with barcode scanning, FEFO, location locking and container tracking." />
+  <title>Warehouse Control System v1</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .dot.low-volume { background: #0b84a5; }
+    .rack-cell.low-volume { border-left-color: #0b84a5; background: #eef9fc; }
+  </style>
+
+  <style>
+    .stock-card-suggestions {
+      margin-top: 0.45rem; max-height: 320px; overflow-y: auto;
+      border: 1px solid #d7dee7; border-radius: 10px; background: #fff;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+    }
+    .stock-card-suggestion {
+      display:block; width:100%; padding:.7rem .8rem; border:0;
+      border-bottom:1px solid #edf0f4; border-radius:0; background:#fff;
+      color:inherit; text-align:left; cursor:pointer;
+    }
+    .stock-card-suggestion:last-child { border-bottom:0; }
+    .stock-card-suggestion:hover,.stock-card-suggestion:focus { background:#f3f7fb; outline:none; }
+    .stock-card-suggestion strong { display:block; margin-bottom:.2rem; }
+    .stock-card-suggestion-meta { display:block; font-size:.82rem; line-height:1.35; color:#5c6773; white-space:normal; }
+    .stock-card-suggestion-empty { padding:.75rem .8rem; color:#687480; font-size:.88rem; }
+
+    /* Legacy styles.css hides every top-bar .ghost button below 780px.
+       Restore only the global Refresh button on mobile. */
+    @media (max-width: 780px) {
+      #refresh-btn.ghost {
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        white-space:nowrap;
+      }
+    }
+  </style>
+
+  <style>
+    .physical-count-preview th,
+    .physical-count-preview td {
+      vertical-align: top;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+    .physical-count-preview .physical-count-remarks-col,
+    .physical-count-preview td.physical-count-remarks-cell {
+      min-width: 240px;
+      width: 28%;
+    }
+    .physical-count-preview td.physical-count-remarks-cell {
+      height: 46px;
+    }
+
+    .physical-count-sort-panel {
+      margin-top: 14px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .physical-count-sort-toggle {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .physical-count-sort-btn {
+      min-width: 104px;
+    }
+
+    .physical-count-sort-btn.active,
+    .physical-count-sort-btn[aria-pressed="true"] {
+      font-weight: 800;
+      box-shadow: inset 0 0 0 2px currentColor;
+    }
+
+    @media (max-width: 780px) {
+      .physical-count-sort-toggle {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .physical-count-sort-btn {
+        width: 100%;
+        min-width: 0;
+      }
+    }
+
+
+    .physical-count-detailed-shipper-preview th,
+    .physical-count-detailed-shipper-preview td {
+      vertical-align: top;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .physical-count-detailed-shipper-preview .physical-count-remarks-col,
+    .physical-count-detailed-shipper-preview td.physical-count-remarks-cell {
+      min-width: 220px;
+      width: 22%;
+    }
+
+    .physical-count-detailed-shipper-preview td.physical-count-remarks-cell {
+      height: 46px;
+    }
+
+    .physical-count-detailed-shipper-header td {
+      font-weight: 700;
+      background: #f3f7fb;
+    }
+
+    .physical-count-detailed-group-start td {
+      border-top-width: 2px;
+    }
+
+    .physical-count-detailed-indent {
+      display: inline-block;
+      width: 1.1rem;
+      text-align: center;
+      font-weight: 700;
+    }
+
+    @media print {
+      @page {
+        size: A4 landscape;
+        margin: 8mm;
+      }
+
+      #print-area.physical-count-print {
+        display: block !important;
+        font-family: Arial, Helvetica, sans-serif;
+        color: #000;
+        background: #fff;
+        font-size: 8.5pt;
+      }
+
+      #print-area.physical-count-print .physical-count-print-header {
+        margin-bottom: 7mm;
+      }
+
+      #print-area.physical-count-print h1 {
+        margin: 0 0 2mm;
+        font-size: 16pt;
+        text-align: center;
+      }
+
+      #print-area.physical-count-print .physical-count-print-subtitle {
+        margin: 0 0 4mm;
+        text-align: center;
+        font-size: 10pt;
+        font-weight: 700;
+      }
+
+      #print-area.physical-count-print .physical-count-print-meta {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5mm 7mm;
+        margin-bottom: 4mm;
+        font-size: 8.5pt;
+      }
+
+      #print-area.physical-count-print .physical-count-check-lines {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 8mm;
+        margin-top: 4mm;
+        margin-bottom: 4mm;
+      }
+
+      #print-area.physical-count-print .physical-count-check-line {
+        border-bottom: 1px solid #000;
+        min-height: 5mm;
+        padding-bottom: 1mm;
+      }
+
+      #print-area.physical-count-print table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+
+      #print-area.physical-count-print thead {
+        display: table-header-group;
+      }
+
+      #print-area.physical-count-print tr {
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+
+      #print-area.physical-count-print th,
+      #print-area.physical-count-print td {
+        border: 1px solid #000;
+        padding: 2.2mm 1.5mm;
+        vertical-align: top;
+        box-sizing: border-box;
+        white-space: normal !important;
+        overflow: hidden;
+        overflow-wrap: anywhere !important;
+        word-break: break-word;
+        line-height: 1.18;
+        height: auto !important;
+      }
+
+      #print-area.physical-count-print th {
+        font-size: 8pt;
+        text-align: left;
+        background: #eee !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      #print-area.physical-count-print td {
+        min-height: 8mm;
+      }
+
+      #print-area.physical-count-print .pc-rack { width: 6%; }
+      #print-area.physical-count-print .pc-sku {
+        width: 30%;
+        white-space: normal !important;
+        overflow: hidden !important;
+        overflow-wrap: anywhere !important;
+        word-break: break-word !important;
+        hyphens: auto;
+      }
+      #print-area.physical-count-print .pc-size { width: 8%; }
+      #print-area.physical-count-print .pc-uom { width: 6%; }
+      #print-area.physical-count-print .pc-qty { width: 7%; text-align: right; }
+      #print-area.physical-count-print .pc-expiry { width: 9%; }
+      #print-area.physical-count-print .pc-container {
+        width: 8%;
+        white-space: nowrap !important;
+        overflow: hidden;
+        text-overflow: clip;
+      }
+      #print-area.physical-count-print .pc-remarks { width: 26%; min-height: 11mm; }
+
+      #print-area.physical-count-print .physical-count-print-footer {
+        margin-top: 4mm;
+        font-size: 7.5pt;
+      }
+
+
+      #print-area.physical-count-detailed-shipper-print .pcd-rack { width: 6%; }
+      #print-area.physical-count-detailed-shipper-print .pcd-type { width: 8%; }
+      #print-area.physical-count-detailed-shipper-print .pcd-shipper { width: 10%; }
+      #print-area.physical-count-detailed-shipper-print .pcd-sku {
+        width: 27%;
+        white-space: normal !important;
+        overflow: hidden !important;
+        overflow-wrap: anywhere !important;
+        word-break: break-word !important;
+      }
+      #print-area.physical-count-detailed-shipper-print .pcd-uom { width: 6%; }
+      #print-area.physical-count-detailed-shipper-print .pcd-qty { width: 7%; text-align: right; }
+      #print-area.physical-count-detailed-shipper-print .pcd-expiry { width: 9%; }
+      #print-area.physical-count-detailed-shipper-print .pcd-container { width: 9%; white-space: nowrap !important; }
+      #print-area.physical-count-detailed-shipper-print .pcd-remarks { width: 18%; min-height: 11mm; }
+      #print-area.physical-count-detailed-shipper-print .pcd-group-start td { border-top-width: 2px; }
+      #print-area.physical-count-detailed-shipper-print .pcd-shipper-header td {
+        font-weight: 700;
+        background: #f3f3f3 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      #print-area.physical-count-detailed-shipper-print .pcd-indent {
+        display: inline-block;
+        width: 4mm;
+        text-align: center;
+        font-weight: 700;
+      }
+    }
+  </style>
+
+  <style>
+    .container-report-toolbar {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      margin: 12px 0 4px;
+    }
+
+    .container-report-mode-toggle {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .container-report-mode-btn.active,
+    .container-report-mode-btn[aria-pressed="true"] {
+      font-weight: 800;
+      box-shadow: inset 0 0 0 2px currentColor;
+    }
+
+    .container-report-preview th,
+    .container-report-preview td {
+      vertical-align: top;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    @media (max-width: 780px) {
+      .container-report-toolbar,
+      .container-report-mode-toggle {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        width: 100%;
+      }
+
+      .container-report-toolbar > [data-container-report-print] {
+        grid-column: 1 / -1;
+        width: 100%;
+      }
+
+      .container-report-mode-btn {
+        width: 100%;
+      }
+    }
+
+    @media print {
+      #print-area.container-detail-print {
+        display: block !important;
+        font-family: Arial, Helvetica, sans-serif;
+        color: #000;
+        background: #fff;
+        font-size: 9pt;
+      }
+
+      #print-area.container-detail-print .container-report-print-header {
+        margin-bottom: 6mm;
+      }
+
+      #print-area.container-detail-print h1 {
+        margin: 0 0 2mm;
+        font-size: 16pt;
+        text-align: center;
+      }
+
+      #print-area.container-detail-print .container-report-print-subtitle {
+        margin: 0 0 4mm;
+        text-align: center;
+        font-size: 10pt;
+        font-weight: 700;
+      }
+
+      #print-area.container-detail-print .container-report-print-meta {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5mm 8mm;
+        margin-bottom: 4mm;
+        font-size: 9pt;
+      }
+
+      #print-area.container-detail-print table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+
+      #print-area.container-detail-print thead {
+        display: table-header-group;
+      }
+
+      #print-area.container-detail-print tr {
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+
+      #print-area.container-detail-print th,
+      #print-area.container-detail-print td {
+        border: 1px solid #000;
+        padding: 2.2mm 1.5mm;
+        vertical-align: top;
+        box-sizing: border-box;
+        white-space: normal !important;
+        overflow: hidden;
+        overflow-wrap: anywhere !important;
+        word-break: break-word;
+        line-height: 1.2;
+        height: auto !important;
+      }
+
+      #print-area.container-detail-print th {
+        background: #eee !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+        font-size: 8.5pt;
+        text-align: left;
+      }
+
+      #print-area.container-detail-print .cr-rack { width: 8%; }
+      #print-area.container-detail-print .cr-sku {
+        width: 42%;
+        overflow-wrap: anywhere !important;
+        word-break: break-word !important;
+        hyphens: auto;
+      }
+      #print-area.container-detail-print .cr-size { width: 10%; }
+      #print-area.container-detail-print .cr-uom { width: 8%; }
+      #print-area.container-detail-print .cr-qty { width: 9%; text-align: right; }
+      #print-area.container-detail-print .cr-expiry { width: 11%; }
+      #print-area.container-detail-print .cr-shipper { width: 12%; }
+
+      #print-area.container-detail-print .container-report-print-footer {
+        margin-top: 4mm;
+        font-size: 8pt;
+      }
+    }
+  </style>
+
+  <style>
+    .inventory-report-head {
+      margin-top: 18px;
+      align-items: center;
+    }
+
+    .inventory-report-head h4 {
+      margin: 0;
+    }
+
+    .inventory-report-head p {
+      margin: 4px 0 0;
+    }
+
+    .inventory-section-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    @media (max-width: 780px) {
+      .inventory-section-actions {
+        display: grid;
+        grid-template-columns: 1fr;
+        width: 100%;
+      }
+
+      .inventory-section-actions button {
+        width: 100%;
+      }
+    }
+
+    @media print {
+      #print-area.inventory-section-print {
+        display: block !important;
+        font-family: Arial, Helvetica, sans-serif;
+        color: #000;
+        background: #fff;
+        font-size: 8.5pt;
+      }
+
+      #print-area.inventory-section-print .inventory-print-header {
+        margin-bottom: 6mm;
+      }
+
+      #print-area.inventory-section-print h1 {
+        margin: 0 0 2mm;
+        text-align: center;
+        font-size: 16pt;
+      }
+
+      #print-area.inventory-section-print .inventory-print-subtitle {
+        margin: 0 0 4mm;
+        text-align: center;
+        font-size: 10pt;
+        font-weight: 700;
+      }
+
+      #print-area.inventory-section-print .inventory-print-meta {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5mm 8mm;
+        margin-bottom: 4mm;
+        font-size: 8.5pt;
+      }
+
+      #print-area.inventory-section-print table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+
+      #print-area.inventory-section-print thead {
+        display: table-header-group;
+      }
+
+      #print-area.inventory-section-print tr {
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+
+      #print-area.inventory-section-print th,
+      #print-area.inventory-section-print td {
+        border: 1px solid #000;
+        padding: 2mm 1.3mm;
+        vertical-align: top;
+        box-sizing: border-box;
+        white-space: normal !important;
+        overflow: hidden;
+        overflow-wrap: anywhere !important;
+        word-break: break-word;
+        line-height: 1.2;
+        height: auto !important;
+      }
+
+      #print-area.inventory-section-print th {
+        background: #eee !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+        font-size: 8pt;
+        text-align: left;
+      }
+
+      #print-area.inventory-section-print .invp-sku { width: 29%; }
+      #print-area.inventory-section-print .invp-balances { width: 17%; }
+      #print-area.inventory-section-print .invp-count { width: 10%; text-align: right; }
+      #print-area.inventory-section-print .invp-held { width: 13%; }
+      #print-area.inventory-section-print .invp-expiry { width: 14%; }
+
+      #print-area.inventory-section-print .invl-location { width: 7%; }
+      #print-area.inventory-section-print .invl-sku { width: 21%; }
+      #print-area.inventory-section-print .invl-shipper { width: 9%; }
+      #print-area.inventory-section-print .invl-container { width: 9%; }
+      #print-area.inventory-section-print .invl-expiry { width: 8%; }
+      #print-area.inventory-section-print .invl-status { width: 10%; }
+      #print-area.inventory-section-print .invl-qty { width: 8%; }
+      #print-area.inventory-section-print .invl-remarks { width: 14%; }
+
+      #print-area.inventory-section-print .inventory-print-footer {
+        margin-top: 4mm;
+        font-size: 7.5pt;
+      }
+    }
+  </style>
+
+  <style id="history-sticky-tabs-style">
+    /* History navigation only. Existing History/Audit tables keep their current
+       desktop/mobile overflow behavior, including horizontal scrolling. */
+    #history-tab-nav {
+      position: sticky;
+      top: var(--history-tab-sticky-top, 76px);
+      z-index: 14;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin: -2px 0 14px;
+      padding: 8px;
+      background: rgba(255, 255, 255, .97);
+      border: 1px solid #d7dee7;
+      border-radius: 11px;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, .06);
+      backdrop-filter: blur(8px);
+    }
+
+    #history-tab-nav .history-tab-btn {
+      width: 100%;
+      min-width: 0;
+      white-space: normal;
+      line-height: 1.25;
+      text-align: center;
+    }
+
+    #history-tab-nav .history-tab-btn.active,
+    #history-tab-nav .history-tab-btn[aria-selected="true"] {
+      font-weight: 800;
+      box-shadow: inset 0 0 0 2px currentColor;
+    }
+
+    .history-tab-panel.hidden { display: none !important; }
+
+    @media (max-width: 780px) {
+      #history-tab-nav {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+        padding: 6px;
+      }
+      #history-tab-nav .history-tab-btn {
+        padding-left: 8px;
+        padding-right: 8px;
+        font-size: .82rem;
+      }
+    }
+  </style>
+
+</head>
+<body>
+  <div id="toast-root" aria-live="polite"></div>
+
+  <section id="auth-view" class="auth-shell">
+    <div class="auth-card">
+      <div class="brand-lockup">
+        <div class="brand-mark">W</div>
+        <div>
+          <h1>Warehouse Control</h1>
+          <p>Inventory, picking, transfers, and container traceability</p>
+        </div>
+      </div>
+
+      <div class="auth-tabs">
+        <button class="tab active" data-auth-tab="login">Sign in</button>
+        <button class="tab" data-auth-tab="signup">Create account</button>
+      </div>
+
+      <form id="login-form" class="stack auth-panel">
+        <label>Email<input id="login-email" type="email" autocomplete="email" required /></label>
+        <label>Password<input id="login-password" type="password" autocomplete="current-password" required /></label>
+        <button class="primary" type="submit">Sign in</button>
+      </form>
+
+      <form id="signup-form" class="stack auth-panel hidden">
+        <label>User name<input id="signup-username" maxlength="60" required /></label>
+        <label>Email<input id="signup-email" type="email" autocomplete="email" required /></label>
+        <label>Password<input id="signup-password" type="password" minlength="8" autocomplete="new-password" required /></label>
+        <button class="primary" type="submit">Create account</button>
+        <p class="hint">New accounts start as regular users. Admins and Owners can manage account roles from User Management.</p>
+      </form>
+    </div>
+  </section>
+
+  <div id="app-view" class="app-shell hidden">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-mark small">W</div>
+        <div><strong id="app-name">Warehouse Control</strong><span>Operations</span></div>
+      </div>
+      <nav id="main-nav">
+        <button data-screen="dashboard" class="active">Dashboard</button>
+        <button data-screen="putaway">Put-away</button>
+        <button data-screen="picking">Picking</button>
+        <button data-screen="transfer">Stock transfer</button>
+        <button data-screen="inventory">Inventory</button>
+        <button data-screen="physicalcount">Physical Count</button>
+        <button data-screen="stockcard">SKU Balance Stock Card</button>
+        <button data-screen="skumaster" data-role-min="supervisor">SKU Masterlist</button>
+        <button data-screen="skuhealth" data-role-min="admin">SKU Master Data Health</button>
+        <button data-screen="containers">Containers</button>
+        <button data-screen="rackmap">Rack map</button>
+        <button data-screen="expiry">Expiry alerts</button>
+        <button data-screen="nonfefo" data-role-min="supervisor">Non-FEFO Compliance</button>
+        <button data-screen="users" data-role-min="admin">User Management</button>
+        <button data-screen="systemmanager" data-role-min="admin">System Manager</button>
+        <button data-screen="history">History</button>
+        <button data-screen="locations" data-role-min="supervisor">Locations & QR</button>
+        <button data-screen="control">System control</button>
+      </nav>
+      <div class="sidebar-user">
+        <div><strong id="current-username">—</strong><span id="current-role">—</span></div>
+        <button id="logout-btn" class="ghost compact">Sign out</button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <button id="menu-btn" class="icon-button" aria-label="Open menu">☰</button>
+        <div>
+          <h2 id="screen-title">Dashboard</h2>
+          <p id="screen-subtitle">Live warehouse overview</p>
+        </div>
+        <div class="topbar-actions">
+          <span id="system-state-chip" class="status-chip active">Operational</span>
+          <button id="refresh-btn" class="ghost">Refresh</button>
+        </div>
+      </header>
+
+      <div id="hold-banner" class="hold-banner hidden">
+        <strong>Administrative Pause is active.</strong>
+        Stock-changing transactions are temporarily blocked across all devices.
+      </div>
+
+      <section id="screen-dashboard" class="screen active">
+        <div id="dashboard-kpis" class="kpi-grid"></div>
+        <div class="content-grid two">
+          <article class="card">
+            <div class="card-head"><div><h3>Expiry attention</h3><p>Expired and within six months</p></div><button class="link-btn" data-jump="expiry">View all</button></div>
+            <div id="dashboard-expiry"></div>
+          </article>
+          <article class="card">
+            <div class="card-head"><div><h3>Recent activity</h3><p>Latest warehouse transactions</p></div><button class="link-btn" data-jump="history">View history</button></div>
+            <div id="dashboard-history"></div>
+          </article>
+        </div>
+        <div class="content-grid two" style="margin-top:18px">
+          <article class="card">
+            <div class="card-head"><div><h3>Pending / unfinished Sales Orders</h3><p>Sales Orders with at least one saved rack pick but not yet finished. The picker shown is the user the Sales Order remains locked to.</p></div><span id="dashboard-pending-sales-orders-count" class="pill">0 pending</span></div>
+            <div id="dashboard-pending-sales-orders" class="table-wrap"></div>
+          </article>
+          <article class="card">
+            <div class="card-head"><div><h3>Current rack locks</h3><p>Active rack locations currently locked for Picking or Stock Transfer. Use Refresh for the latest status.</p></div><span id="dashboard-active-rack-locks-count" class="pill">0 active</span></div>
+            <div id="dashboard-active-rack-locks" class="table-wrap"></div>
+          </article>
+        </div>
+        <article class="card" style="margin-top:18px">
+          <div class="card-head"><div><h3>Saved Pick correction queue</h3><p>Picker-reported SAVED Pick mistakes awaiting Supervisor review, plus approved physical returns still needing rack/barcode confirmation.</p></div><span id="dashboard-pending-pick-returns-count" class="pill">0 open</span></div>
+          <div id="dashboard-pending-pick-returns" class="table-wrap"></div>
+        </article>
+        <article class="card" style="margin-top:18px">
+          <div class="card-head"><div><h3>SKU consolidation opportunities</h3><p>Same Brand + Description + Variant + Size + Container + Expiry currently spread across two or more physical racks</p></div><span id="dashboard-consolidation-count" class="pill">0 opportunities</span></div>
+          <div id="dashboard-consolidation" class="table-wrap"></div>
+        </article>
+      </section>
+
+      <section id="screen-putaway" class="screen">
+        <article class="card">
+          <div class="card-head"><div><h3>Put-away type</h3><p>Use Standard SKU for normal pallet stock. Use Shipper Box when one CASE barcode represents a physical box containing multiple PACK-level SKUs and expiry dates.</p></div></div>
+          <label>Transaction type<select id="pa-mode-select"><option value="STANDARD">Standard SKU / pallet</option><option value="SHIPPER">Shipper Box</option></select></label>
+        </article>
+
+        <form id="putaway-form" class="card form-card">
+          <div class="card-head"><div><h3>Standard SKU put-away</h3><p>CASE, PACK, and PIECE barcode fields are all required. Use N/A when a barcode is unavailable. If all three are N/A, select a previously recorded barcode-less SKU or explicitly create a new one. Container, expiry, and quantities are always entered manually.</p></div></div>
+          <div class="form-grid three">
+            <label>Rack location / QR *<div class="scan-field"><input id="pa-location" required /><button type="button" class="scan-btn" data-scan-target="pa-location" data-scan-kind="location">Scan</button></div></label>
+            <label>Case barcode *<div class="scan-field with-na"><input id="pa-case" required autocomplete="off" /><button type="button" class="scan-btn" data-scan-target="pa-case">Scan</button><button type="button" class="na-btn" data-na-target="pa-case">N/A</button></div></label>
+            <label>Pack barcode *<div class="scan-field with-na"><input id="pa-pack" required autocomplete="off" /><button type="button" class="scan-btn" data-scan-target="pa-pack">Scan</button><button type="button" class="na-btn" data-na-target="pa-pack">N/A</button></div></label>
+            <label>Piece barcode *<div class="scan-field with-na"><input id="pa-piece" required autocomplete="off" /><button type="button" class="scan-btn" data-scan-target="pa-piece">Scan</button><button type="button" class="na-btn" data-na-target="pa-piece">N/A</button></div></label>
+            <div id="pa-barcode-less-panel" class="warning-box hidden" style="grid-column:1/-1">
+              <strong>No physical barcode — choose the permanent SKU first</strong>
+              <p class="small-note">CASE, PACK, and PIECE are all N/A. Search and select a previously recorded barcode-less item to reuse its exact SKU record. This prevents small wording differences such as “microfiber” versus “micro fiber” from creating duplicate SKUs.</p>
+              <div class="form-grid two">
+                <label>Search previously recorded items<input id="pa-barcode-less-search" type="search" autocomplete="off" placeholder="Example: micro1, microfiber, cloth..." /></label>
+                <label>Previously recorded barcode-less SKU<select id="pa-barcode-less-select"><option value="">Select a previously recorded barcode-less SKU</option></select></label>
+              </div>
+              <div id="pa-barcode-less-selection-note" class="info-box"></div>
+              <div class="form-actions"><button id="pa-barcode-less-new-btn" type="button" class="secondary">Create new barcode-less SKU</button></div>
+              <p class="small-note"><strong>Create New</strong> should be used only when the physical item is genuinely not in the existing list. Exact duplicate barcode-less master details are also blocked by the database.</p>
+            </div>
+            <label>Brand *<input id="pa-brand" required /></label>
+            <label>Description *<input id="pa-description" required /></label>
+            <label>Variant *<input id="pa-variant" required /></label>
+            <label>Size *<input id="pa-size" required /></label>
+            <label>Container number *<input id="pa-container" required /></label>
+            <label>Expiry date *<input id="pa-expiry" type="date" required /></label>
+            <label class="check-line"><input id="pa-no-expiry" type="checkbox" /> No expiry (N/A)</label>
+            <label>Case quantity<input id="pa-case-qty" type="number" min="0" step="1" value="0" inputmode="numeric" /></label>
+            <label>Pack quantity<input id="pa-pack-qty" type="number" min="0" step="1" value="0" inputmode="numeric" /></label>
+            <label>Piece quantity<input id="pa-piece-qty" type="number" min="0" step="1" value="0" inputmode="numeric" /></label>
+            <label>Remarks<textarea id="pa-note" rows="2"></textarea></label>
+          </div>
+          <div id="pa-match-note" class="info-box hidden"></div>
+          <div id="pa-duplicate-warning" class="warning-box hidden">
+            <strong>ITEM WITH THE SAME DETAILS EXISTED. Please check BARCODE</strong>
+            <p id="pa-duplicate-details"></p>
+            <label class="check-line"><input id="pa-still-add" type="checkbox" /> Still Add to Database</label>
+          </div>
+          <div class="form-actions"><button id="pa-clear-line-btn" type="button" class="ghost">Clear SKU line</button><button id="pa-add-btn" class="secondary" type="submit">Add SKU to pallet</button></div>
+          <div id="pa-cart" class="table-wrap"></div>
+          <div class="form-actions split"><button id="pa-cancel-btn" type="button" class="danger ghost" disabled>Cancel pallet session</button><button id="pa-complete-btn" class="primary" type="button" disabled>Complete put-away</button></div>
+        </form>
+
+        <form id="shipper-putaway-form" class="card form-card hidden">
+          <div class="card-head"><div><h3>Shipper Box put-away</h3><p>The Shipper CASE barcode identifies the Shipper product only. Every physical incoming box receives its own internal SB number and its contents are encoded fresh for this delivery.</p></div></div>
+          <div class="info-box"><strong>Important:</strong> Contents are not copied from earlier deliveries. The same Shipper CASE barcode may contain different SKUs, quantities, and expiry dates every time it arrives.</div>
+          <div id="sp-result" class="info-box hidden"></div>
+          <div class="form-grid three">
+            <label>Rack location / QR *<div class="scan-field"><input id="sp-location" required /><button type="button" class="scan-btn" data-scan-target="sp-location" data-scan-kind="location">Scan</button></div></label>
+            <label>Shipper CASE barcode *<div class="scan-field"><input id="sp-case" required autocomplete="off" /><button type="button" class="scan-btn" data-scan-target="sp-case">Scan</button></div></label>
+            <label>Container number *<input id="sp-container" required /></label>
+            <label>Number of identical Shipper cases *<input id="sp-case-count" type="number" min="1" max="500" step="1" value="1" inputmode="numeric" required /></label>
+            <label>Brand *<input id="sp-brand" required /></label>
+            <label>Description *<input id="sp-description" required /></label>
+            <label>Variant *<input id="sp-variant" required /></label>
+            <label>Size *<input id="sp-size" required /></label>
+            <label>Remarks<textarea id="sp-note" rows="2"></textarea></label>
+          </div>
+          <div id="sp-batch-approval-note" class="warning-box"><strong>Supervisor approval required for quantity 2+:</strong> The Picker stays signed in. A Supervisor, Admin, or Owner approves on this device using their normal WMS login email and login password. The password is verified by Supabase Auth and is not stored in WMS history.</div>
+          <div class="warning-box"><strong>Identical-case batch rule:</strong> If an approved Supervisor-or-higher user enters more than 1 case, every generated physical SB will receive the exact same child SKUs, PACK quantities, expiry dates, container, and rack. If even one physical case is different, encode that case in a separate batch.</div>
+          <div id="sp-match-note" class="info-box hidden"></div>
+          <div id="sp-duplicate-warning" class="warning-box hidden">
+            <strong>ITEM WITH THE SAME DETAILS EXISTED. Please check BARCODE</strong>
+            <p id="sp-duplicate-details"></p>
+            <label class="check-line"><input id="sp-still-add" type="checkbox" /> Still Add Shipper to Database</label>
+          </div>
+
+          <div class="card-head compact"><div><h3>Contents of this physical Shipper Box</h3><p>Encode each PACK-level SKU lot. Different expiry dates remain separate. Same SKU + same expiry is consolidated automatically when saved.</p></div></div>
+          <div class="form-grid three">
+            <label>Content PACK barcode *<div class="scan-field"><input id="sp-content-pack" autocomplete="off" /><button type="button" class="scan-btn" data-scan-target="sp-content-pack">Scan</button></div></label>
+            <label>Expiry date *<input id="sp-content-expiry" type="date" required /></label>
+            <label class="check-line"><input id="sp-content-no-expiry" type="checkbox" /> No expiry (N/A)</label>
+            <label>PACK quantity — whole number *<input id="sp-content-qty" type="number" min="1" step="1" inputmode="numeric" /></label>
+            <label>Brand *<input id="sp-content-brand" /></label>
+            <label>Description *<input id="sp-content-description" /></label>
+            <label>Variant *<input id="sp-content-variant" /></label>
+            <label>Size *<input id="sp-content-size" /></label>
+          </div>
+          <div id="sp-content-match-note" class="info-box hidden"></div>
+          <div id="sp-content-duplicate-warning" class="warning-box hidden">
+            <strong>ITEM WITH THE SAME DETAILS EXISTED. Please check BARCODE</strong>
+            <p id="sp-content-duplicate-details"></p>
+            <label class="check-line"><input id="sp-content-still-add" type="checkbox" /> Still Add to Database</label>
+          </div>
+          <div class="form-actions"><button id="sp-clear-content-btn" type="button" class="ghost">Clear content line</button><button id="sp-add-content-btn" type="button" class="secondary">Add PACK content</button></div>
+          <div id="sp-content-cart" class="table-wrap"><div class="empty-state">No Shipper contents added yet.</div></div>
+          <div class="form-actions split"><button id="sp-cancel-btn" type="button" class="danger ghost">Cancel Shipper Box</button><button id="sp-complete-btn" type="button" class="primary" disabled>Complete Shipper put-away</button></div>
+        </form>
+      </section>
+
+      <section id="screen-picking" class="screen">
+        <div class="card form-card">
+          <div class="card-head"><div><h3>Picking session</h3><p>Normal Sales Orders use the existing multi-rack workflow. Sales Order 0 is reserved for reusable Warehouse Stock Adjustment.</p></div><span id="pick-lock-chip" class="status-chip neutral">No location locked</span></div>
+          <div class="form-grid three">
+            <label>Sales order number *<input id="pick-so" required /></label>
+            <label>Source rack / QR *<div class="scan-field"><input id="pick-location" /><button type="button" class="scan-btn" data-scan-target="pick-location" data-scan-kind="location">Scan</button></div></label>
+            <div class="field-action"><button id="pick-lock-btn" class="secondary" type="button">Lock source location</button></div>
+            <label>CASE, PACK, or PIECE barcode *<div class="scan-field with-na"><input id="pick-barcode" name="wms-pick-barcode-entry" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-autocomplete="none" disabled /><button type="button" class="scan-btn" data-scan-target="pick-barcode" disabled>Scan</button><button type="button" class="na-btn" data-na-target="pick-barcode" disabled>N/A</button></div></label>
+            <label>Matching expiry / container<select id="pick-lot" disabled><option value="">Scan a barcode first</option></select></label>
+            <label>Pick quantity — whole number (<span id="pick-unit-label">matched unit</span>)<input id="pick-qty" type="number" min="1" step="1" inputmode="numeric" disabled /></label>
+          </div>
+          <div id="pick-barcode-match" class="info-box hidden"></div>
+          <div id="pick-qty-note" class="info-box hidden"></div>
+          <div id="pick-so-status" class="info-box"><strong>Sales order status:</strong> enter a sales order number. A completed Sales Order requires Supervisor/Admin/Owner login-password approval before reuse.</div>
+          <div class="info-box"><strong>Warehouse Stock Adjustment:</strong> use Sales Order <strong>0</strong> when stock must be converted/reclassified physically. Example: OUT 1 damaged/incomplete CASE under SO 0, then Put-away the remaining usable PIECES. SO 0 is reusable indefinitely; normal Sales Order rules are unchanged.</div>
+          <div id="pick-normal-remarks-panel" class="info-box">
+            <strong>Picking remarks</strong>
+            <p class="small-note">Optional, maximum 500 characters. Saved with this completed rack PICK transaction and searchable in Transaction History. A fresh remark is entered for each completed rack.</p>
+            <label>Remarks<textarea id="pick-remarks" maxlength="500" placeholder="Example: Customer requested partial release; load with route 3"></textarea></label>
+          </div>
+          <div id="pick-adjustment-remarks-panel" class="warning-box hidden">
+            <strong>Stock adjustment reason / remarks *</strong>
+            <p class="small-note">Required for every completed Sales Order 0 rack adjustment. State why the stock adjustment is necessary. The remark is saved with the PICK transaction and is searchable in Transaction History.</p>
+            <label>Reason / remarks *<textarea id="pick-adjustment-remarks" maxlength="500" placeholder="Example: Broke 1 piece; incomplete case must be converted to loose pieces"></textarea></label>
+          </div>
+          <div id="pick-so-override-panel" class="warning-box hidden">
+            <strong>Completed Sales Order — approval required</strong>
+            <p class="small-note">If this Sales Order really needs to be reopened, enter the reason below and request approval. If it was entered by mistake, use <strong>Cancel picking</strong> to leave it closed.</p>
+            <input id="pick-so-override" type="checkbox" class="hidden" aria-hidden="true" tabindex="-1" />
+            <label>Reason for reopening *<input id="pick-so-override-reason" type="text" placeholder="Example: additional items were missed from the original pick" disabled /></label>
+            <div class="form-actions">
+              <button id="pick-so-reopen-request-btn" class="primary" type="button" disabled>Request Supervisor / Admin / Owner approval</button>
+            </div>
+            <p class="small-note">The approver enters their normal WMS login email and password on this device. The Picker remains signed in. The database verifies that the approver is currently an active Supervisor, Admin, or Owner when approval is granted and checks that authority again when the Sales Order is reopened.</p>
+          </div>
+          <div class="info-box"><strong>Barcode-controlled deduction:</strong> a CASE barcode deducts CASE stock, a PACK barcode deducts PACK stock, and a PIECE barcode deducts PIECE stock. If the required unit barcode is stored as N/A, enter N/A and select the exact eligible item. <strong>Shipper:</strong> scanning a Shipper CASE selects a complete SEALED physical box; scanning a child PACK barcode selects a specific content SKU/expiry and opens that box when picked.</div>
+          <div class="card-head compact"><div><h3 id="pick-rack-title">Source rack contents</h3><p>Displayed for reference. Use the registered barcode normally; if it is physically unreadable, request Supervisor/Admin/Owner approval for a controlled bypass.</p></div></div>
+          <div id="pick-rack-contents" class="table-wrap"><div class="empty-state">Lock a source rack to display its available items.</div></div>
+          <div id="pick-fefo-note" class="warning-box hidden"></div>
+          <div class="form-actions split">
+            <button id="pick-add-btn" class="secondary" type="button" disabled>Add item</button>
+            <div>
+              <button id="pick-cancel-btn" class="danger ghost" type="button" disabled>Cancel / restart rack</button>
+              <button id="pick-cancel-order-btn" class="danger" type="button" disabled>Cancel picking</button>
+              <button id="pick-complete-btn" class="secondary" type="button" disabled>Complete this rack</button>
+              <button id="pick-finish-so-btn" class="primary" type="button" disabled>Finish sales order</button>
+            </div>
+          </div>
+          <div id="pick-cart" class="table-wrap"></div>
+          <div class="card-head compact"><div><h3>Picking / Stock Adjustment summary</h3><p>Normal Sales Orders show multi-rack progress. SAVED rows remain immutable; Supervisor/Admin/Owner may create a separate Saved Pick correction. SO 0 remains immediately final and reusable.</p></div><button id="pick-summary-refresh-btn" class="secondary" type="button">Refresh summary</button></div>
+          <div id="pick-order-summary" class="table-wrap"><div class="empty-state">Enter a sales order number to see its picking summary.</div></div>
+        </div>
+      </section>
+
+      <section id="screen-transfer" class="screen">
+        <div class="card form-card">
+          <div class="card-head"><div><h3>Stock transfer session</h3><p>Lock the source, add lots, then scan the destination QR.</p></div><span id="transfer-lock-chip" class="status-chip neutral">No location locked</span></div>
+          <div class="form-grid three">
+            <label>Source rack / QR *<div class="scan-field"><input id="tr-source" /><button type="button" class="scan-btn" data-scan-target="tr-source" data-scan-kind="location">Scan</button></div></label>
+            <div class="field-action"><button id="tr-lock-btn" class="secondary" type="button">Lock source location</button></div>
+            <label>CASE, PACK, or PIECE barcode *<div class="scan-field with-na"><input id="tr-barcode" name="wms-transfer-barcode-entry" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-autocomplete="none" disabled /><button type="button" class="scan-btn" data-scan-target="tr-barcode" disabled>Scan</button><button type="button" class="na-btn" data-na-target="tr-barcode" disabled>N/A</button></div></label>
+            <label>Matching expiry / container<select id="tr-lot" disabled><option value="">Scan a barcode first</option></select></label>
+            <label>Transfer quantity (<span id="tr-unit-label">matched unit</span>)<input id="tr-qty" type="number" min="1" step="1" inputmode="numeric" disabled /></label>
+            <label>New location / QR *<div class="scan-field"><input id="tr-destination" disabled /><button type="button" class="scan-btn" data-scan-target="tr-destination" data-scan-kind="location" disabled>Scan</button></div></label>
+            <label>Remarks<textarea id="tr-note" rows="2"></textarea></label>
+          </div>
+          <div class="warning-box">
+            <label class="check-line"><input id="tr-transfer-all" type="checkbox" disabled /> <strong>Transfer ALL stock in this source rack (whole pallet / rack reorganization)</strong></label>
+            <p class="small-note">When selected, barcode-by-barcode entry is skipped and every active STANDARD lot plus every physical Shipper Box in the locked source rack moves to the one destination. Shipper SB identity and SEALED/OPEN status are preserved.</p>
+            <p class="small-note"><strong>Important:</strong> the current WMS does not store a separate physical Pallet ID, so this option is rack-level. If the source rack contains more than one pallet/container, all active stock in that rack will move.</p>
+          </div>
+          <div id="tr-transfer-all-note" class="info-box hidden"></div>
+          <div id="tr-barcode-match" class="info-box hidden"></div>
+          <div id="tr-qty-note" class="info-box hidden"></div>
+          <div class="info-box"><strong>Barcode-controlled transfer:</strong> a CASE barcode transfers CASE stock, a PACK barcode transfers PACK stock, and a PIECE barcode transfers PIECE stock. If the required unit barcode is stored as N/A, enter N/A and select the exact eligible item. <strong>Shipper:</strong> a Shipper CASE moves the complete SEALED physical box and all contents together; a child PACK transfer removes only that content and opens the source box.</div>
+          <div class="card-head compact"><div><h3 id="tr-rack-title">Source rack contents</h3><p>Displayed for reference so the user can see what is currently available in the locked source rack.</p></div></div>
+          <div id="tr-rack-contents" class="table-wrap"><div class="empty-state">Lock a source rack to display its available items.</div></div>
+          <div class="form-actions split"><button id="tr-add-btn" class="secondary" type="button" disabled>Add item</button><div><button id="tr-cancel-btn" class="danger ghost" type="button" disabled>Cancel / restart</button><button id="tr-complete-btn" class="primary" type="button" disabled>Complete transfer</button></div></div>
+          <div class="card-head compact"><div><h3>Transfer summary</h3><p>All items queued for this transfer remain here until you click Complete transfer.</p></div></div>
+          <div id="tr-cart" class="table-wrap"><div class="empty-state">No items queued for transfer yet.</div></div>
+        </div>
+      </section>
+
+      <section id="screen-inventory" class="screen">
+        <article class="card">
+          <div class="card-head"><div><h3>Inventory by lot and location</h3><p>Current positive stock only</p></div><button class="secondary export-btn" data-export="inventory">Export CSV</button></div>
+          <div class="filters">
+            <label><strong>Search 1</strong><div class="scan-field"><input id="inventory-search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search SKU, CASE/PACK/PIECE barcode, container, location, expiry, remarks, ON HOLD reason, or PENDING..." /><button type="button" class="scan-btn" data-scan-target="inventory-search" data-scan-kind="barcode" title="Scan CASE, PACK, or PIECE barcode">Scan</button><button type="button" id="inventory-search-exact-rack" class="secondary" aria-pressed="false" title="Exact rack location: when ON, Search 1 matches only the exact rack code typed in Search 1.">Exact rack</button></div></label>
+            <label><strong>Filter 2</strong><div class="scan-field"><input id="inventory-filter" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Narrow the current Search 1 results further..." /><button type="button" id="inventory-filter-exact-rack" class="secondary" aria-pressed="false" title="Exact rack location: when ON, Filter 2 matches only the exact rack code typed in Filter 2.">Exact rack</button></div></label>
+          </div>
+          <p class="small-note"><strong>Normal search stays unchanged while Exact rack is OFF.</strong> Turn <strong>Exact rack</strong> ON for a field when you want that field to match only the rack code itself: F2 returns F2 only, never F25 or F26. Search 1 and Filter 2 can use Exact rack independently.</p>
+          <div class="card-head compact inventory-report-head">
+            <div><h4>SKU summary</h4><p>Aggregated from the current filtered Inventory result</p></div>
+            <div class="inventory-section-actions">
+              <button id="inventory-summary-print-btn" type="button" class="secondary">Print / Save PDF</button>
+              <button id="inventory-summary-export-btn" type="button" class="secondary">Export Filtered CSV</button>
+            </div>
+          </div>
+          <div id="inventory-summary-table" class="table-wrap"></div>
+
+          <div class="card-head compact inventory-report-head">
+            <div><h4>Detailed lots</h4><p>Current filtered lot/location rows</p></div>
+            <div class="inventory-section-actions">
+              <button id="inventory-lots-print-btn" type="button" class="secondary">Print / Save PDF</button>
+              <button id="inventory-lots-export-btn" type="button" class="secondary">Export Filtered CSV</button>
+            </div>
+          </div>
+          <div class="info-box"><strong>Detailed-Lot control:</strong> Supervisor / Admin / Owner may Edit eligible lots. Delete remains Admin / Owner only. <strong>Admin / Owner may also Freeze a lot (ON HOLD)</strong> so it cannot be released by Picking, Sales Order 0, barcode bypass, item-by-item Stock Transfer, or whole-rack transfer until it is explicitly Unfrozen. Hold and Unfreeze both require a reason and are recorded in Audit History.</div>
+          <div id="inventory-table" class="table-wrap"></div>
+        </article>
+      </section>
+
+      <section id="screen-physicalcount" class="screen">
+        <article id="physical-count-standard-panel" class="card">
+          <div class="card-head">
+            <div>
+              <h3>Physical Count</h3>
+              <p>Read-only printable count sheet for comparing current system stock against the actual warehouse.</p>
+            </div>
+            <div class="button-cluster">
+              <button id="physical-count-detailed-shipper-btn" type="button" class="secondary">Detailed Shipper View</button>
+              <button id="physical-count-print-btn" type="button" class="primary">Print / Save PDF</button>
+            </div>
+          </div>
+
+          <div class="info-box">
+            <strong>Read-only report.</strong>
+            This module does not change inventory. Each printed line represents one unique
+            <strong>rack + SKU + UOM + expiry + container</strong> combination. Exact duplicate
+            system lots with the same physical identity are combined into one quantity line.
+          </div>
+
+          <div class="form-grid two">
+            <label>SKU filter
+              <div class="scan-field">
+                <input id="physical-count-sku" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                  placeholder="Brand, description, variant, size, or barcode..." />
+                <button type="button" class="scan-btn" data-scan-target="physical-count-sku" data-scan-kind="barcode"
+                  title="Scan CASE, PACK, or PIECE barcode">Scan</button>
+              </div>
+            </label>
+
+            <label>Container number (exact)
+              <input id="physical-count-container" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                placeholder="Example: 2025-76" />
+              <small>Multiple exact containers may be separated by commas.</small>
+            </label>
+
+            <label>Rack(s)
+              <div class="scan-field">
+                <input id="physical-count-racks" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                  placeholder="A1 or A1-A10 or A1,A3,B2..." />
+                <button type="button" class="scan-btn" data-scan-target="physical-count-racks" data-scan-kind="location"
+                  title="Scan one exact rack QR">Scan</button>
+              </div>
+              <small>Blank = all racks. Supports exact racks, comma-separated racks, and ranges such as A1-A10.</small>
+            </label>
+          </div>
+
+          <div class="physical-count-sort-panel">
+            <strong>Sort order</strong>
+            <div id="physical-count-sort-toggle" class="physical-count-sort-toggle" role="group" aria-label="Physical Count sort order">
+              <button type="button" class="secondary physical-count-sort-btn active" data-physical-count-sort="auto" aria-pressed="true">Auto</button>
+              <button type="button" class="secondary physical-count-sort-btn" data-physical-count-sort="alpha" aria-pressed="false">Alphabetical</button>
+              <button type="button" class="secondary physical-count-sort-btn" data-physical-count-sort="container" aria-pressed="false">Container</button>
+              <button type="button" class="secondary physical-count-sort-btn" data-physical-count-sort="rack" aria-pressed="false">Rack</button>
+              <button type="button" class="secondary physical-count-sort-btn" data-physical-count-sort="rack-container" aria-pressed="false">Rack + Container</button>
+            </div>
+            <small>
+              Auto preserves the current rule: Rack filter = rack order; otherwise alphabetical.
+              Rack + Container sorts by rack first, then container within each rack.
+            </small>
+          </div>
+
+          <div class="button-cluster">
+            <button id="physical-count-clear-btn" type="button" class="ghost">Clear filters</button>
+          </div>
+
+          <p id="physical-count-count" class="small-note">Physical Count data will load when this module opens.</p>
+
+          <div class="table-wrap physical-count-preview-wrap">
+            <table class="physical-count-preview">
+              <thead>
+                <tr>
+                  <th>Rack #</th>
+                  <th>SKU — Brand / Description / Variant</th>
+                  <th>Size</th>
+                  <th>UOM</th>
+                  <th>Qty</th>
+                  <th>Expiry</th>
+                  <th>Container #</th>
+                  <th class="physical-count-remarks-col">Checker’s Remarks</th>
+                </tr>
+              </thead>
+              <tbody id="physical-count-table-body">
+                <tr><td colspan="8"><div class="empty-state">Loading current inventory…</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article id="physical-count-detailed-shipper-panel" class="card hidden">
+          <div class="card-head">
+            <div>
+              <h3>Physical Count — Detailed Shipper View</h3>
+              <p>Full Physical Count with regular stock kept in sequence and every physical Shipper Box grouped by exact SB identity.</p>
+            </div>
+            <div class="button-cluster">
+              <button id="physical-count-detailed-shipper-back-btn" type="button" class="ghost">Back to Standard View</button>
+              <button id="physical-count-detailed-shipper-print-btn" type="button" class="primary">Print / Save PDF</button>
+            </div>
+          </div>
+
+          <div class="info-box">
+            <strong>Read-only alternate presentation.</strong>
+            Regular stock keeps the normal Physical Count consolidation rule. Shipper-linked stock is separated by exact
+            <strong>SB number</strong> and kept together as one block: <strong>SHIPPER</strong> header first, followed immediately by its
+            <strong>CONTENT</strong> rows. The current Physical Count filters and sort order are reused. This view does not change inventory or Shipper status.
+          </div>
+
+          <p id="physical-count-detailed-shipper-count" class="small-note">Detailed Shipper View will load from the current Physical Count data.</p>
+
+          <div class="table-wrap physical-count-detailed-shipper-wrap">
+            <table class="physical-count-detailed-shipper-preview">
+              <thead>
+                <tr>
+                  <th>Rack #</th>
+                  <th>Type</th>
+                  <th>Shipper Box</th>
+                  <th>SKU / Description / Size</th>
+                  <th>UOM</th>
+                  <th>Qty</th>
+                  <th>Expiry</th>
+                  <th>Container #</th>
+                  <th class="physical-count-remarks-col">Checker’s Remarks</th>
+                </tr>
+              </thead>
+              <tbody id="physical-count-detailed-shipper-table-body">
+                <tr><td colspan="9"><div class="empty-state">Open Detailed Shipper View to build the report.</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section id="screen-stockcard" class="screen">
+        <article class="card">
+          <div class="card-head">
+            <div>
+              <h3>SKU Balance Stock Card</h3>
+              <p>Read-only SKU movement ledger with current balance reconciliation and rack movement history.</p>
+            </div>
+            <button class="secondary export-btn" data-export="stockcard">Export CSV</button>
+          </div>
+
+          <div class="info-box">
+            <strong>Read-only reporting module.</strong>
+            Live Inventory remains the stock authority. This card combines retained warehouse transactions with stock-changing Detailed-Lot audit adjustments.
+            CASE, PACK, and PIECE balances remain separate. A Stock Transfer moves stock between racks but does not change the overall SKU balance.
+          </div>
+
+          <form id="stock-card-search-form" class="stack">
+            <div class="form-grid two">
+              <label>SKU / barcode search *
+                <div class="scan-field">
+                  <input id="stock-card-search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-autocomplete="list" aria-controls="stock-card-suggestions" aria-expanded="false" placeholder="Scan or type CASE / PACK / PIECE barcode, brand, description, variant, or size..." required />
+                  <button type="button" class="scan-btn" data-scan-target="stock-card-search" data-scan-kind="barcode" title="Scan CASE, PACK, or PIECE barcode">Scan</button>
+                  <button id="stock-card-find-btn" type="submit" class="secondary">Find SKU</button>
+                </div>
+                <div id="stock-card-suggestions" class="stock-card-suggestions hidden" role="listbox" aria-label="Matching SKUs"></div>
+                <small>Suggestions appear while typing. Click the exact SKU you want to load.</small>
+              </label>
+
+              <label>Selected SKU *
+                <select id="stock-card-sku" required>
+                  <option value="">Search or scan a SKU first</option>
+                </select>
+              </label>
+
+              <label>Date from
+                <input id="stock-card-from" type="date" />
+              </label>
+
+              <label>Date to
+                <input id="stock-card-to" type="date" />
+              </label>
+
+              <label>Exact rack location (optional)
+                <div class="scan-field">
+                  <input id="stock-card-rack" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Example: F2" />
+                  <button type="button" class="scan-btn" data-scan-target="stock-card-rack" data-scan-kind="location" title="Scan exact rack QR">Scan</button>
+                </div>
+              </label>
+
+              <label>Display UOM
+                <select id="stock-card-uom">
+                  <option value="">All stock units</option>
+                  <option value="CASE">CASE</option>
+                  <option value="PACK">PACK</option>
+                  <option value="PIECE">PIECE</option>
+                </select>
+              </label>
+
+              <label>Movement filter
+                <select id="stock-card-movement">
+                  <option value="">All movements</option>
+                  <option value="PUTAWAY">Put-away</option>
+                  <option value="PICK">Picking</option>
+                  <option value="TRANSFER">Stock Transfer</option>
+                  <option value="ADJUSTMENT">Adjustments / corrections</option>
+                </select>
+              </label>
+            </div>
+
+            <p class="small-note"><strong>Display filters:</strong> UOM and Movement filter hide/show ledger rows only. Running balances still include all retained stock-changing movements inside the selected SKU / date / exact-rack scope.</p>
+            <div class="button-cluster">
+              <button id="stock-card-load-btn" type="button" class="primary">Load stock card</button>
+              <button id="stock-card-clear-btn" type="button" class="ghost">Clear</button>
+            </div>
+          </form>
+
+          <div id="stock-card-selected-info" class="info-box hidden"></div>
+          <div id="stock-card-balance-summary" class="info-box hidden"></div>
+          <p id="stock-card-retention-note" class="small-note"></p>
+
+          <div class="card-head compact">
+            <div>
+              <h3>Movement ledger</h3>
+              <p id="stock-card-count">Select a SKU to load its stock card.</p>
+            </div>
+          </div>
+          <div id="stock-card-table" class="table-wrap"></div>
+        </article>
+      </section>
+
+      <section id="screen-skumaster" class="screen">
+        <article class="card">
+          <div class="card-head">
+            <div><h3>SKU Masterlist</h3><p>Permanent STANDARD and SHIPPER SKU details used by Put-away barcode lookup. Supervisors can view; Admin and Owner can edit.</p></div>
+            <button class="secondary export-btn" data-export="skumaster">Export CSV</button>
+          </div>
+          <div class="filters"><div class="scan-field"><input id="sku-master-search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search brand, description, variant, size, barcode, or creator..." /><button type="button" class="scan-btn" data-scan-target="sku-master-search" data-scan-kind="barcode" title="Scan CASE, PACK, or PIECE barcode">Scan</button></div></div>
+          <div class="info-box"><strong>Access:</strong> Supervisor = view only · Admin / Owner = view, edit, and archive/delete. Every change requires a reason and is written to Audit History. Archived SKUs keep their historical identity; if an original archived barcode is encountered again in Put-away, the system warns the user and Admin/Owner can reactivate that same original SKU record.</div>
+          <p id="sku-master-count" class="small-note">0 SKU record(s) shown</p>
+          <div id="sku-master-table" class="table-wrap"></div>
+        </article>
+      </section>
+
+      <section id="screen-skuhealth" class="screen">
+        <article class="card">
+          <div class="card-head">
+            <div>
+              <h3>SKU Master Data Health</h3>
+              <p>Admin / Owner review of duplicate details, possible split barcode families, incomplete barcode sets, cross-category barcode reuse, and archived SKU records.</p>
+            </div>
+            <button class="secondary export-btn" data-export="skuhealth">Export CSV</button>
+          </div>
+
+          <div class="info-box">
+            <strong>Read-only diagnostic report.</strong> This module does not merge, edit, delete, or reactivate anything automatically.
+            Always physically verify the product before changing a SKU master record.
+          </div>
+
+          <div id="sku-health-summary" class="info-box">Loading SKU health summary…</div>
+
+          <div class="filters grid">
+            <input id="sku-health-search" placeholder="Search SKU details, CASE/PACK/PIECE barcode, creator, delete reason..." />
+            <select id="sku-health-filter">
+              <option value="NEEDS_REVIEW">Needs review</option>
+              <option value="ALL">All SKU groups</option>
+              <option value="DUPLICATE">Duplicate details</option>
+              <option value="SPLIT">Possible split barcodes</option>
+              <option value="CROSS">Cross-category barcode reuse</option>
+              <option value="INCOMPLETE">Incomplete barcode family</option>
+              <option value="ARCHIVED">Includes archived records</option>
+              <option value="CLEAN">Clean only</option>
+            </select>
+          </div>
+
+          <div class="info-box">
+            <strong>How to use it:</strong> a split/duplicate warning does not prove the records should be merged.
+            Verify the actual CASE/PACK/PIECE barcodes on the physical item first. If they are one product, use SKU Masterlist Edit
+            to establish one canonical barcode family, then archive unnecessary duplicate records only after their current inventory is zero.
+          </div>
+
+          <p id="sku-health-count" class="small-note">0 SKU group(s) shown</p>
+          <div id="sku-health-table" class="table-wrap"></div>
+        </article>
+      </section>
+
+      <section id="screen-containers" class="screen">
+        <article class="card">
+          <div class="card-head"><div><h3>Container report</h3><p>Remaining contents, SKUs, expiry dates, and locations</p></div><button class="secondary export-btn" data-export="containers">Export CSV</button></div>
+          <div class="filters"><input id="container-search" placeholder="Search container number..." /></div>
+          <div id="container-summary-table" class="table-wrap"></div>
+          <div id="container-detail" class="detail-panel hidden"></div>
+        </article>
+      </section>
+
+      <section id="screen-rackmap" class="screen">
+        <article class="card">
+          <div class="card-head"><div><h3>Rack occupancy map</h3><p>Empty, occupied, locked, and pending locations</p></div></div>
+          <div class="legend"><span><i class="dot empty"></i>Empty</span><span><i class="dot occupied"></i>Occupied</span><span><i class="dot low-volume"></i>Low volume (1–19 CASE / 1–199 PACK / 1–499 PIECE)</span><span><i class="dot locked"></i>Locked</span><span><i class="dot pending"></i>Pending</span></div>
+          <div class="filters rack-filters">
+            <select id="rack-map-row"><option value="">All rack rows</option></select>
+            <input id="rack-map-search" placeholder="Search rack, container, or user..." />
+          </div>
+          <div id="rack-map" class="rack-grid"></div>
+        </article>
+      </section>
+
+      <section id="screen-expiry" class="screen">
+        <article class="card">
+          <div class="card-head"><div><h3>Expiry alerts</h3><p>Expired items and items expiring within six months</p></div><button class="secondary export-btn" data-export="expiry">Export CSV</button></div>
+          <div id="expiry-table" class="table-wrap"></div>
+        </article>
+      </section>
+
+      <section id="screen-nonfefo" class="screen">
+        <article class="card">
+          <div class="card-head">
+            <div><h3>Non-FEFO Compliance Report</h3><p>Confirmed picking lines where a user deliberately selected later-expiring stock while earlier non-expired stock remained available.</p></div>
+            <button class="secondary export-btn" data-export="nonfefo">Export CSV</button>
+          </div>
+          <div class="info-box"><strong>Access:</strong> Supervisor and above. Each record is created only after the picker confirms the FEFO warning and the rack pick is successfully completed.</div>
+          <div class="filters grid">
+            <input id="nonfefo-search" placeholder="Search transaction, SO, user, SKU, rack, container, or reason..." />
+            <label>From date<input id="nonfefo-from" type="date" /></label>
+            <label>To date<input id="nonfefo-to" type="date" /></label>
+          </div>
+          <p id="nonfefo-count" class="small-note">0 override line(s)</p>
+          <div id="nonfefo-table" class="table-wrap"></div>
+        </article>
+      </section>
+
+
+      <section id="screen-users" class="screen">
+        <article class="card">
+          <div class="card-head">
+            <div><h3>Registered Users</h3><p>Manage WMS roles and account access. Admin sees non-owner accounts only; Owner sees every registered account.</p></div>
+          </div>
+          <div class="info-box"><strong>Authority:</strong> Admin can assign Viewer, User, Supervisor, or Admin roles and can demote/kick out any non-owner account. Owner can assign Viewer, User, Supervisor, Admin, or Owner and can manage every other account. <strong>Viewer is read-only</strong> and can access only Dashboard, Inventory, Containers, Rack Map, Expiry Alerts, and SKU Balance Stock Card. Only Owner can promote someone to Owner, and the Owner-promotion password is required.</div>
+          <div id="users-kpis" class="kpi-grid" style="margin-top:16px"></div>
+          <div class="filters grid">
+            <input id="users-search" placeholder="Search username, email, role, or status..." />
+            <select id="users-role"><option value="">All visible roles</option><option value="owner">Owner</option><option value="admin">Admin</option><option value="supervisor">Supervisor</option><option value="user">User</option><option value="viewer">Viewer</option></select>
+            <select id="users-status"><option value="">All statuses</option><option value="ACTIVE">Active</option><option value="INACTIVE">Kicked out</option></select>
+          </div>
+          <p id="users-count" class="small-note">0 registered users</p>
+          <div id="users-table" class="table-wrap"></div>
+        </article>
+      </section>
+
+      <section id="screen-systemmanager" class="screen">
+        <article class="card">
+          <div class="card-head">
+            <div>
+              <h3>Supabase Free usage</h3>
+              <p>Current project-side usage snapshot and Free-plan reference limits.</p>
+            </div>
+            <button id="system-manager-refresh-btn" class="secondary" type="button">Refresh usage</button>
+          </div>
+          <div class="info-box">
+            <strong>Important:</strong> Database size and File Storage are read directly from this project when this module is accessed. Supabase's exact billing-cycle <strong>Egress</strong> and <strong>MAU</strong> are platform analytics and are not safely available to a static GitHub Pages app without secret management credentials, so this WMS does not fake those figures. Use the official Usage button for the authoritative numbers.
+          </div>
+          <p id="system-manager-checked-at" class="small-note">Not checked yet.</p>
+          <div id="system-manager-usage-grid" class="kpi-grid"></div>
+          <div class="form-actions">
+            <button id="system-manager-usage-link" class="secondary" type="button">Open exact Supabase Usage</button>
+          </div>
+        </article>
+
+        <div class="content-grid two">
+          <article class="card">
+            <div class="card-head"><div><h3>90-day history retention</h3><p>Automatic cleanup of Transaction History and System Audit Events.</p></div></div>
+            <div id="system-manager-retention-status" class="info-box">Loading retention status…</div>
+            <p class="hint">Records aged 90 days or more are removed automatically. Transaction lines and Non-FEFO detail records tied to deleted transactions are removed with them. Current inventory balances are not deleted.</p>
+          </article>
+
+          <form id="system-history-delete-form" class="card form-card">
+            <div class="card-head"><div><h3>Delete history by date range</h3><p>Admin/Owner only · permanent deletion · inclusive warehouse dates.</p></div></div>
+            <div class="form-grid two">
+              <label>From date *<input id="system-history-start" type="date" required /></label>
+              <label>To date *<input id="system-history-end" type="date" required /></label>
+            </div>
+            <label>Reason *<textarea id="system-history-reason" rows="3" required placeholder="Why is this history being deleted?"></textarea></label>
+            <div id="system-history-preview" class="info-box hidden"></div>
+            <div class="form-actions split">
+              <button id="system-history-preview-btn" class="secondary" type="button">Preview records</button>
+              <button class="danger" type="submit">Delete selected history</button>
+            </div>
+            <p class="hint">If the range contains history for an OPEN Sales Order, deletion is blocked until that Sales Order is finished or cancelled. One new audit event is kept to record the administrative deletion itself.</p>
+          </form>
+        </div>
+      </section>
+
+      <section id="screen-history" class="screen">
+        <article class="card">
+          <div id="history-tab-nav" role="tablist" aria-label="History sections">
+            <button id="history-tab-transactions" type="button" class="secondary history-tab-btn active" role="tab" aria-selected="true" aria-controls="history-transaction-panel" data-history-tab="transactions">Transaction History</button>
+            <button id="history-tab-audit" type="button" class="secondary history-tab-btn" role="tab" aria-selected="false" aria-controls="history-audit-panel" data-history-tab="audit">System Audit Events</button>
+          </div>
+
+          <div id="history-transaction-panel" class="history-tab-panel" role="tabpanel" aria-labelledby="history-tab-transactions">
+            <div class="card-head"><div><h3>Transaction history</h3><p>Every movement, FEFO override, edit, system-control action, and saved Put-away / Transfer / Stock Adjustment remarks</p></div><button class="secondary export-btn" data-export="history">Export CSV</button></div>
+            <div class="filters grid"><div class="scan-field"><input id="history-search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search transaction, user, SO, SKU, rack, remarks..." /><button type="button" id="history-exact-rack" class="secondary" aria-pressed="false" title="Exact rack location: when ON, Transaction Search matches only the exact rack code typed in the search field.">Exact rack</button></div><select id="history-type"><option value="">All actions</option><option>PUTAWAY</option><option>PICK</option><option>TRANSFER</option><option>PICK_CANCEL</option><option>TRANSFER_CANCEL</option><option>ADMIN_PAUSE</option><option>ADMIN_RESUME</option></select></div>
+            <p class="small-note">For an exact rack transaction search, type the rack code (example: F2), then turn <strong>Exact rack</strong> ON. The normal transaction search remains unchanged while it is OFF.</p>
+            <div id="history-table" class="table-wrap"></div>
+          </div>
+
+          <div id="history-audit-panel" class="history-tab-panel hidden" role="tabpanel" aria-labelledby="history-tab-audit">
+            <div class="card-head audit-head"><div><h3>System audit events</h3><p>Up to the last 90 calendar days of retained audit events, with detailed report filters</p></div><button class="secondary export-btn" data-export="audit">Export filtered audit CSV</button></div>
+
+            <div class="form-grid two">
+              <label>Action
+                <select id="audit-action-filter">
+                  <option value="">All actions</option>
+                </select>
+              </label>
+              <label>User
+                <input id="audit-user-filter" autocomplete="off" placeholder="Username / actor..." />
+              </label>
+              <label>Remarks
+                <input id="audit-remarks-filter" autocomplete="off" placeholder="Stored remarks / notes..." />
+              </label>
+              <label>Reason
+                <input id="audit-reason-filter" autocomplete="off" placeholder="Approval / edit / audit reason..." />
+              </label>
+              <label>Sales Order number
+                <input id="audit-so-filter" autocomplete="off" placeholder="Example: 12345 or 0" />
+              </label>
+              <label>Container number
+                <input id="audit-container-filter" autocomplete="off" placeholder="Example: 2025-76" />
+              </label>
+              <label>Rack number (exact)
+                <input id="audit-rack-filter" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Example: F2" />
+              </label>
+              <label>Coverage date from
+                <input id="audit-date-from" type="date" />
+              </label>
+              <label>Coverage date to
+                <input id="audit-date-to" type="date" />
+              </label>
+            </div>
+            <div class="button-cluster">
+              <button id="audit-clear-filters" type="button" class="ghost">Clear audit filters</button>
+            </div>
+            <p id="audit-history-count" class="small-note">Audit events will load when History opens.</p>
+            <div id="audit-history-table" class="table-wrap"></div>
+          </div>
+        </article>
+      </section>
+
+      <section id="screen-locations" class="screen">
+        <div class="content-grid two">
+          <form id="location-form" class="card form-card">
+            <div class="card-head"><div><h3>Add another location</h3><p>Your supplied physical racks and virtual pending locations are stored in one location master. Add future physical or virtual locations here.</p></div></div>
+            <div class="form-grid two">
+              <label>Location code *<input id="loc-code" required placeholder="L1" /></label>
+              <label>Display name<input id="loc-name" placeholder="Rack L1" /></label>
+              <label>Zone<input id="loc-zone" /></label>
+              <label>Row<input id="loc-row" /></label>
+              <label>Position<input id="loc-bay" /></label>
+              <label>Level<input id="loc-level" /></label>
+              <label class="check-row"><input id="loc-pending" type="checkbox" /> Virtual pending location</label>
+            </div>
+            <div class="form-actions"><button class="primary" type="submit">Add location</button></div>
+          </form>
+          <article class="card">
+            <div class="card-head">
+              <div><h3>Location QR labels & virtual location manager</h3><p>Filter/print QR labels. Supervisor and above may Rename or Delete virtual/pending locations only. Physical racks remain protected.</p></div>
+              <div class="button-cluster">
+                <button id="select-visible-qr-btn" class="secondary" type="button">Select visible</button>
+                <button id="clear-qr-btn" class="secondary" type="button">Clear</button>
+                <button id="print-qr-btn" class="secondary" type="button">Print selected</button>
+              </div>
+            </div>
+            <div class="filters rack-filters">
+              <select id="location-row-filter"><option value="">All rack rows</option></select>
+              <input id="location-search" placeholder="Search location..." />
+            </div>
+            <p id="location-count" class="small-note">0 shown · 0 selected</p>
+            <p class="small-note"><strong>Safe maintenance:</strong> Rename/Delete requires Administrative Pause. Before changing a pending location, confirm no warehouse user has an unsaved Put-away session targeting it. Delete is allowed only when the location is empty and unlocked; historical references remain preserved.</p>
+            <div id="locations-table" class="table-wrap"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="screen-control" class="screen">
+        <div class="content-grid two">
+          <article class="card control-card">
+            <div class="card-head"><div><h3>Administrative Pause</h3><p>Temporarily prevent stock-changing operations on every connected device.</p></div></div>
+            <label>Administrative control code<input id="admin-code" type="password" autocomplete="off" /></label>
+            <button id="admin-code-btn" class="primary">Apply control code</button>
+            <div id="control-result" class="info-box hidden"></div>
+          </article>
+          <article class="card">
+            <h3>How it behaves</h3>
+            <p>The pause and resume codes are different. The database validates them securely; the codes are not stored in this website.</p>
+            <p>Administrative Pause blocks put-away, picking, transfers, and Admin/Owner corrections. Viewing reports remains available.</p>
+            <p class="hint">Change the two placeholder codes in <code>supabase-schema.sql</code> before running it.</p>
+          </article>
+        </div>
+
+        <article class="card" style="margin-top:18px;border:2px solid rgba(180,35,35,.35)">
+          <div class="card-head">
+            <div>
+              <h3>FULL WMS DATA RESET</h3>
+              <p>Owner only. Permanently clears all warehouse/master/history data and deletes every non-Owner user account.</p>
+            </div>
+          </div>
+          <div class="warning-box">
+            <strong>Destructive operation.</strong> Current inventory, SKU Masterlist, Containers, Shipper Boxes, Sales Orders,
+            Transaction History, System Audit Events, Non-FEFO records, rack locks, and all non-Owner accounts will be removed.
+            <strong>Owner accounts, rack locations, System Control configuration, System Manager/Cron, and database structure are preserved.</strong>
+          </div>
+          <p class="small-note">Create and verify a current V2.1 backup before using Full Reset. The reset leaves the WMS in Administrative Pause.</p>
+          <button id="full-reset-open-btn" class="danger" type="button">FULL RESET PROJECT DATA</button>
+          <div id="full-reset-result" class="info-box hidden" style="margin-top:12px"></div>
+        </article>
+      </section>
+    </main>
+  </div>
+
+
+
+  <dialog id="shipper-batch-approval-dialog" class="edit-dialog">
+    <div class="scanner-head">
+      <div><h3>Approve Batch Shipper Put-away</h3><p>Supervisor / Admin / Owner approval. The Picker remains signed in.</p></div>
+      <button id="shipper-batch-approval-close" class="icon-button" type="button">✕</button>
+    </div>
+    <form id="shipper-batch-approval-form" class="stack">
+      <div id="shipper-batch-approval-context" class="warning-box"></div>
+      <label>Approver login email *<input id="shipper-batch-approver-email" type="email" autocomplete="off" required /></label>
+      <label>Approver login password *<input id="shipper-batch-approver-password" type="password" autocomplete="off" required /></label>
+      <div class="info-box"><strong>Security:</strong> These credentials are used only to authenticate the approver directly with Supabase Auth. The password is never written to WMS tables, transactions, or Audit History.</div>
+      <button id="shipper-batch-approval-confirm" class="primary" type="submit">APPROVE BATCH</button>
+      <p class="small-note">Approval is one-time, expires after 5 minutes, and is tied to the exact Shipper barcode, rack, container, contents, expiries, quantities, and case count shown in this batch.</p>
+    </form>
+  </dialog>
+
+  <dialog id="saved-pick-correction-dialog" class="edit-dialog">
+    <div class="scanner-head">
+      <div><h3>Report SAVED Pick Mistake</h3><p>Original picker may report their own SAVED line. Supervisor/Admin/Owner may also report an eligible line. Reporting does not change Inventory.</p></div>
+      <button id="saved-pick-correction-close" class="icon-button" type="button">✕</button>
+    </div>
+    <form id="saved-pick-correction-form" class="stack">
+      <input id="saved-pick-correction-line-id" type="hidden" />
+      <div id="saved-pick-correction-context" class="info-box"></div>
+      <label>Quantity mistakenly over-picked / incorrectly saved *
+        <input id="saved-pick-correction-qty" type="number" min="1" step="1" inputmode="numeric" required />
+      </label>
+      <label>Where is that excess stock now? *
+        <select id="saved-pick-correction-mode" required>
+          <option value="PHYSICAL_RETURN">Already removed from rack — physical return required</option>
+          <option value="STILL_IN_ORIGINAL_RACK">Never physically left the original rack</option>
+        </select>
+      </label>
+      <label>Picker mistake report / reason *
+        <textarea id="saved-pick-correction-reason" maxlength="500" rows="3" required placeholder="Example: I entered 10 CASE instead of 8 CASE. The extra 2 CASE were already removed from A12."></textarea>
+      </label>
+      <div class="warning-box"><strong>No stock changes at this step.</strong> This creates <strong>CORRECTION REQUESTED</strong> and blocks Finish Sales Order until Supervisor/Admin/Owner reviews or rejects it.</div>
+      <button class="primary" type="submit">Report mistake for Supervisor review</button>
+    </form>
+  </dialog>
+
+  <dialog id="saved-pick-review-dialog" class="edit-dialog">
+    <div class="scanner-head">
+      <div><h3>Review SAVED Pick Correction</h3><p>Supervisor / Admin / Owner only. Review the picker report before any stock is restored.</p></div>
+      <button id="saved-pick-review-close" class="icon-button" type="button">✕</button>
+    </div>
+    <form id="saved-pick-review-form" class="stack">
+      <input id="saved-pick-review-id" type="hidden" />
+      <div id="saved-pick-review-context" class="info-box"></div>
+      <label>Approved correction quantity *
+        <input id="saved-pick-review-qty" type="number" min="1" step="1" inputmode="numeric" required />
+      </label>
+      <label>Approved physical status *
+        <select id="saved-pick-review-mode" required>
+          <option value="PHYSICAL_RETURN">Physical return required — assign to original picker</option>
+          <option value="STILL_IN_ORIGINAL_RACK">Stock never left original rack — restore immediately</option>
+        </select>
+      </label>
+      <label>Supervisor review note
+        <textarea id="saved-pick-review-note" maxlength="500" rows="3" placeholder="Required when rejecting or changing the picker-reported quantity / physical status."></textarea>
+      </label>
+      <div class="warning-box"><strong>Approve carefully.</strong> “Still in original rack” restores stock immediately. “Physical return required” does not restore stock until the assigned picker/Supervisor scans the original rack and registered UOM barcode.</div>
+      <div class="dialog-actions">
+        <button id="saved-pick-review-reject" class="danger" type="button">Reject request</button>
+        <button class="primary" type="submit">Approve correction</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="saved-pick-return-dialog" class="edit-dialog">
+    <div class="scanner-head">
+      <div><h3>Complete Saved Pick Return</h3><p>Return the exact excess stock to its original rack.</p></div>
+      <button id="saved-pick-return-close" class="icon-button" type="button">✕</button>
+    </div>
+    <form id="saved-pick-return-form" class="stack">
+      <input id="saved-pick-return-id" type="hidden" />
+      <div id="saved-pick-return-context" class="warning-box"></div>
+      <label>Original return rack / QR *
+        <div class="scan-field"><input id="saved-pick-return-location" autocomplete="off" required /><button type="button" class="scan-btn" data-scan-target="saved-pick-return-location" data-scan-kind="location">Scan</button></div>
+      </label>
+      <label>CASE, PACK, or PIECE barcode *
+        <div class="scan-field with-na"><input id="saved-pick-return-barcode" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" required /><button type="button" class="scan-btn" data-scan-target="saved-pick-return-barcode" data-scan-kind="barcode">Scan</button><button type="button" class="na-btn" data-na-target="saved-pick-return-barcode">N/A</button></div>
+      </label>
+      <div class="info-box"><strong>Stock is restored only after this confirmation succeeds.</strong> The database requires the original rack and the registered barcode for the saved UOM. N/A is accepted only when that UOM is stored as N/A in the SKU Masterlist.</div>
+      <button class="primary" type="submit">Confirm physical return</button>
+    </form>
+  </dialog>
+
+  <dialog id="warehouse-approval-dialog" class="edit-dialog">
+    <div class="scanner-head">
+      <div><h3 id="warehouse-approval-title">Approve controlled action</h3><p>Supervisor / Admin / Owner approval. The warehouse user remains signed in.</p></div>
+      <button id="warehouse-approval-close" class="icon-button" type="button">✕</button>
+    </div>
+    <form id="warehouse-approval-form" class="stack">
+      <div id="warehouse-approval-context" class="warning-box"></div>
+      <label>Approver login email *<input id="warehouse-approver-email" type="email" autocomplete="off" required /></label>
+      <label>Approver login password *<input id="warehouse-approver-password" type="password" autocomplete="off" required /></label>
+      <div class="info-box"><strong>Security:</strong> These credentials authenticate the approver directly with Supabase Auth. The password is never written to WMS tables, transactions, or Audit History.</div>
+      <button id="warehouse-approval-confirm" class="primary" type="submit">APPROVE ACTION</button>
+      <p class="small-note">Approval is short-lived, one-time, and tied to the exact controlled action shown above. The database checks the approver's current active role again when the action is executed.</p>
+    </form>
+  </dialog>
+
+  <dialog id="full-reset-dialog" class="edit-dialog">
+    <div class="scanner-head">
+      <div><h3>FULL WMS DATA RESET</h3><p>Owner-only permanent reset. Review the live counts before continuing.</p></div>
+      <button id="full-reset-close" class="icon-button" type="button">✕</button>
+    </div>
+    <form id="full-reset-form" class="stack">
+      <div id="full-reset-preview" class="warning-box">Loading reset preview…</div>
+      <div class="warning-box">
+        <strong>What remains:</strong> Owner accounts, physical rack/location master, System Control configuration,
+        System Manager/Cron, functions/RLS/views, and the website/database structure.
+      </div>
+      <label>Full Reset confirmation PIN *
+        <input id="full-reset-pin" type="password" autocomplete="new-password" required />
+      </label>
+      <label style="display:flex;gap:10px;align-items:flex-start">
+        <input id="full-reset-understand" type="checkbox" required style="width:auto;margin-top:4px" />
+        <span>I understand that this permanently deletes the listed WMS data and all non-Owner user accounts.</span>
+      </label>
+      <button id="full-reset-confirm-btn" class="danger" type="submit">PERMANENTLY FULL RESET WMS</button>
+      <p class="small-note">If the PIN is wrong, nothing is reset. Five failed attempts within 10 minutes temporarily lock this reset action.</p>
+    </form>
+  </dialog>
+
+  <dialog id="pending-location-rename-dialog" class="edit-dialog">
+    <div class="scanner-head"><div><h3>Rename virtual location</h3><p>Supervisor / Admin / Owner. Administrative Pause is required. Physical rack locations cannot be changed here.</p></div><button id="pending-location-rename-close" class="icon-button" type="button">✕</button></div>
+    <form id="pending-location-rename-form" class="stack">
+      <input id="pending-location-rename-id" type="hidden" />
+      <div id="pending-location-rename-current" class="info-box"></div>
+      <div class="form-grid two">
+        <label>New location code *<input id="pending-location-rename-code" required placeholder="PENDING-IMPORTED COLD" /></label>
+        <label>Display name<input id="pending-location-rename-name" placeholder="Imported Cold Pending" /></label>
+      </div>
+      <label>Reason for rename *<textarea id="pending-location-rename-reason" required placeholder="Example: renamed staging area to match warehouse signage"></textarea></label>
+      <p class="small-note">Before renaming, confirm no user has an unsaved Put-away session targeting this location. Renaming preserves the same internal location and any current stock assigned to it. If the location code changes, print a new QR label; the old QR value will no longer be valid. Historical rows that resolve the current location name will show the new code, while Audit History records the old and new values.</p>
+      <button class="primary" type="submit">Save virtual location rename</button>
+    </form>
+  </dialog>
+
+  <dialog id="scanner-dialog" class="scanner-dialog">
+    <div class="scanner-head"><div><h3 id="scanner-title">Scan code</h3><p>Point the camera at the barcode or QR code.</p></div><button id="scanner-close" class="icon-button" aria-label="Close">✕</button></div>
+    <video id="scanner-video" playsinline muted></video>
+    <div class="scanner-line"></div>
+    <div class="scanner-controls">
+      <select id="camera-select"></select>
+      <button id="camera-start" class="secondary">Start camera</button>
+    </div>
+    <form id="manual-scan-form" class="manual-scan"><input id="manual-scan-input" placeholder="Or type / use a USB scanner" /><button class="primary">Use code</button></form>
+    <p id="scanner-status" class="hint">Camera access requires HTTPS and browser permission.</p>
+  </dialog>
+
+  <dialog id="edit-dialog" class="edit-dialog">
+    <div class="scanner-head"><div><h3>Admin transaction correction</h3><p>Admin/Owner only. Corrections update inventory while preserving the audit trail.</p></div><button id="edit-close" class="icon-button">✕</button></div>
+    <form id="edit-transaction-form" class="stack">
+      <input id="edit-transaction-id" type="hidden" />
+      <label>Sales order<input id="edit-sales-order" /></label>
+      <div id="edit-lines"></div>
+      <label>Reason for correction *<textarea id="edit-reason" required></textarea></label>
+      <button class="primary" type="submit">Save correction</button>
+    </form>
+  </dialog>
+
+  <dialog id="inventory-remarks-dialog" class="edit-dialog">
+    <div class="scanner-head"><div><h3>Edit current lot remarks</h3><p>Supervisor / Admin / Owner. This changes the current Inventory/Detailed-Lots display only; original transaction History remains unchanged.</p></div><button id="inventory-remarks-close" class="icon-button" type="button">✕</button></div>
+    <form id="inventory-remarks-form" class="stack">
+      <input id="inventory-remarks-lot-id" type="hidden" />
+      <div id="inventory-remarks-current" class="info-box"></div>
+      <div id="inventory-remarks-history" class="info-box"></div>
+      <label>Current Put-away remarks<textarea id="inventory-remarks-putaway" rows="3" maxlength="1000" placeholder="Blank is allowed"></textarea></label>
+      <label>Current Stock transfer remarks<textarea id="inventory-remarks-transfer" rows="3" maxlength="1000" placeholder="Blank is allowed"></textarea></label>
+      <label>Reason for remark change *<textarea id="inventory-remarks-reason" rows="2" maxlength="500" required placeholder="Example: inspection updated from slightly dented to heavily dented"></textarea></label>
+      <p class="small-note">Remarks are operational/searchable labels only. They do not change SKU, quantity, rack, expiry, FEFO, ON HOLD status, or stock-lot identity.</p>
+      <button class="primary" type="submit">Save current remarks</button>
+    </form>
+  </dialog>
+
+  <dialog id="inventory-adjust-dialog" class="edit-dialog">
+    <div class="scanner-head"><div><h3>Inventory lot adjustment</h3><p>Supervisor / Admin / Owner may edit Detailed Lots. Delete remains Admin / Owner only. Changes are written to Audit History.</p></div><button id="inventory-adjust-close" class="icon-button" type="button">✕</button></div>
+    <form id="inventory-adjust-form" class="stack">
+      <input id="inventory-adjust-lot-id" type="hidden" />
+      <input id="inventory-adjust-shipper-box-id" type="hidden" />
+      <div id="inventory-adjust-current" class="info-box"></div>
+      <div id="inventory-adjust-shipper-context" class="info-box hidden"></div>
+      <div class="form-grid two">
+        <label>SKU / Item<select id="inventory-adjust-sku" required></select></label>
+        <label>Rack location<select id="inventory-adjust-location" required></select></label>
+        <label>Container number<input id="inventory-adjust-container" required /></label>
+        <label>Expiry date<input id="inventory-adjust-expiry" type="date" required /></label>
+        <label>Stock unit<select id="inventory-adjust-uom" required><option value="CASE">CASE</option><option value="PACK">PACK</option><option value="PIECE">PIECE</option></select></label>
+        <label>Quantity — whole number<input id="inventory-adjust-qty" type="number" min="1" step="1" inputmode="numeric" required /></label>
+      </div>
+      <label id="inventory-adjust-putaway-note-wrap" class="hidden">Shipper put-away remarks<textarea id="inventory-adjust-putaway-note" rows="2" placeholder="Original/current Shipper put-away remarks"></textarea></label>
+      <p id="inventory-adjust-shipper-help" class="small-note hidden">For Shipper content, changing rack or container corrects the current physical box and all of its active contents together. PACK quantity may be corrected to 0 to remove an erroneous content line. A SEALED Shipper's complete CASE expiry is recalculated from its remaining contents.</p>
+      <label>Reason for adjustment *<textarea id="inventory-adjust-reason" required placeholder="Example: physical count correction, wrong rack encoded, wrong container number"></textarea></label>
+      <button class="primary" type="submit">Save inventory adjustment</button>
+    </form>
+  </dialog>
+
+  <dialog id="sku-master-edit-dialog" class="edit-dialog">
+    <div class="scanner-head"><div><h3>Edit SKU Masterlist</h3><p>Admin/Owner only. Every edit requires a reason and is saved to Audit History.</p></div><button id="sku-master-edit-close" class="icon-button" type="button">✕</button></div>
+    <form id="sku-master-edit-form" class="stack">
+      <input id="sku-master-edit-id" type="hidden" />
+      <div id="sku-master-edit-current" class="info-box"></div>
+      <div class="form-grid two">
+        <label>Brand *<input id="sku-master-edit-brand" required /></label>
+        <label>Description *<input id="sku-master-edit-description" required /></label>
+        <label>Variant *<input id="sku-master-edit-variant" required /></label>
+        <label>Size *<input id="sku-master-edit-size" required /></label>
+        <label>CASE barcode *<input id="sku-master-edit-case" required /></label>
+        <label>PACK barcode *<input id="sku-master-edit-pack" required /></label>
+        <label>PIECE barcode *<input id="sku-master-edit-piece" required /></label>
+      </div>
+      <p class="small-note">Enter N/A when a barcode type is unavailable. A STANDARD SKU may intentionally use N/A for CASE, PACK, and PIECE when the product has no physical barcode. SHIPPER master records still require an actual CASE barcode.</p>
+      <label>Reason for edit *<textarea id="sku-master-edit-reason" required placeholder="Example: corrected barcode, corrected variant, corrected size"></textarea></label>
+      <button class="primary" type="submit">Save SKU master edit</button>
+    </form>
+  </dialog>
+
+
+  <dialog id="user-role-dialog" class="edit-dialog">
+    <div class="scanner-head"><div><h3>Change User Role</h3><p>Promotion and demotion are enforced by your own role in Supabase.</p></div><button id="user-role-close" class="icon-button" type="button">✕</button></div>
+    <form id="user-role-form" class="stack">
+      <input id="user-role-target-id" type="hidden" />
+      <input id="user-role-current-role" type="hidden" />
+      <div id="user-role-target-info" class="info-box"></div>
+      <label>New role<select id="user-role-select" required></select></label>
+      <label id="user-owner-password-wrap" class="hidden">Owner-promotion password *<input id="user-owner-password" type="password" autocomplete="off" /></label>
+      <p class="small-note">The Owner-promotion password is required only when a non-owner account is being promoted to Owner. The password is validated against a hash in Supabase and is not written to Audit History.</p>
+      <button class="primary" type="submit">Save role change</button>
+    </form>
+  </dialog>
+
+
+  <script id="history-sticky-tabs-script">
+    (() => {
+      let activeHistoryTab = 'transactions';
+
+      function historyStickyOffset() {
+        const topbar = document.querySelector('.topbar');
+        const height = topbar ? Math.ceil(topbar.getBoundingClientRect().height) : 0;
+        document.documentElement.style.setProperty('--history-tab-sticky-top', `${height}px`);
+        return height;
+      }
+
+      function showHistoryTab(name, scrollToFilters = true) {
+        if (name !== 'transactions' && name !== 'audit') return;
+        activeHistoryTab = name;
+
+        const txPanel = document.getElementById('history-transaction-panel');
+        const auditPanel = document.getElementById('history-audit-panel');
+        const txTab = document.getElementById('history-tab-transactions');
+        const auditTab = document.getElementById('history-tab-audit');
+        const nav = document.getElementById('history-tab-nav');
+        if (!txPanel || !auditPanel || !txTab || !auditTab || !nav) return;
+
+        const showTransactions = name === 'transactions';
+        txPanel.classList.toggle('hidden', !showTransactions);
+        auditPanel.classList.toggle('hidden', showTransactions);
+        txTab.classList.toggle('active', showTransactions);
+        auditTab.classList.toggle('active', !showTransactions);
+        txTab.setAttribute('aria-selected', showTransactions ? 'true' : 'false');
+        auditTab.setAttribute('aria-selected', showTransactions ? 'false' : 'true');
+
+        if (scrollToFilters) {
+          requestAnimationFrame(() => {
+            const topbarHeight = historyStickyOffset();
+            const y = Math.max(0, window.scrollY + nav.getBoundingClientRect().top - topbarHeight - 6);
+            window.scrollTo({ top: y, behavior: 'smooth' });
+          });
+        }
+      }
+
+      function initHistoryStickyTabs() {
+        const nav = document.getElementById('history-tab-nav');
+        if (!nav) return;
+
+        historyStickyOffset();
+        nav.addEventListener('click', (event) => {
+          const button = event.target.closest('[data-history-tab]');
+          if (!button) return;
+          showHistoryTab(button.dataset.historyTab, true);
+        });
+
+        window.addEventListener('resize', historyStickyOffset, { passive: true });
+        showHistoryTab(activeHistoryTab, false);
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initHistoryStickyTabs, { once: true });
+      } else {
+        initHistoryStickyTabs();
+      }
+    })();
+  </script>
+
+  <script src="config.js"></script>
+  <script type="module" src="app.js?v=20260822-saved-pick-correction-v2-1"></script>
+</body>
+</html>
