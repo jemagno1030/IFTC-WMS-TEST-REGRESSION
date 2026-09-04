@@ -192,3 +192,76 @@ pre { white-space: pre-wrap; max-width: 520px; max-height: 300px; overflow: auto
   .rack-row-heading { align-items: flex-start; flex-direction: column; gap: 3px; }
   .button-cluster { justify-content: flex-start; }
 }
+
+
+/* ============================================================
+   IFTC WMS - TEST / REGRESSION ENVIRONMENT MARKER
+   TEST REPOSITORY ONLY
+   Does not affect warehouse logic.
+   ============================================================ */
+
+:root {
+  --test-environment-banner-height: 38px;
+}
+
+/* Permanent TEST warning across the top of every screen */
+body::before {
+  content: "⚠ TEST / REGRESSION ENVIRONMENT — NOT LIVE WAREHOUSE";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--test-environment-banner-height);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+
+  background: #b42318;
+  color: #ffffff;
+  border-bottom: 2px solid #7a1710;
+
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 0.7px;
+  text-align: center;
+
+  z-index: 2147483647;
+  pointer-events: none;
+}
+
+/* Make room for the permanent TEST banner */
+body {
+  padding-top: var(--test-environment-banner-height);
+}
+
+/* Keep the desktop/mobile sidebar below the TEST banner */
+.sidebar {
+  top: var(--test-environment-banner-height);
+  height: calc(100vh - var(--test-environment-banner-height));
+}
+
+/* Keep the sticky page header below the TEST banner */
+.topbar {
+  top: var(--test-environment-banner-height);
+}
+
+/* Slightly smaller banner text on narrow phones */
+@media (max-width: 480px) {
+  body::before {
+    font-size: 11px;
+    letter-spacing: 0.2px;
+    padding: 0 6px;
+  }
+}
+
+/* Never place the TEST marker on printed warehouse reports */
+@media print {
+  body::before {
+    display: none !important;
+  }
+
+  body {
+    padding-top: 0 !important;
+  }
+}
