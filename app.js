@@ -273,25 +273,8 @@ function freshOperationState() {
   return { lockToken: null, locationCode: null, heartbeat: null, cart: [], lots: [], rackLots: [], sku: null, naMode: false, adjustmentSessionKey: null, bulkTransactionRemark: null };
 }
 
-function normalizePickSalesOrder(value) {
-  const text = String(value ?? '').trim();
-  if (/^\d+$/.test(text)) {
-    const withoutLeadingZeros = text.replace(/^0+/, '');
-    return withoutLeadingZeros || '0';
-  }
-  return text;
-}
-
-function normalizePickSalesOrderInput() {
-  const input = $('pick-so');
-  if (!input) return '';
-  const normalized = normalizePickSalesOrder(input.value);
-  if (input.value !== normalized) input.value = normalized;
-  return normalized;
-}
-
 function isStockAdjustmentSalesOrder(value) {
-  return normalizePickSalesOrder(value) === '0';
+  return String(value ?? '').trim() === '0';
 }
 
 function isInternalStockAdjustmentKey(value) {
@@ -2678,7 +2661,7 @@ async function submitShipperPutawayBatch(payload, approvalToken = null, approval
 }
 
 async function lockPickLocation() {
-  const so = normalizePickSalesOrderInput();
+  const so = $('pick-so').value.trim();
   const location = normalizeLocation($('pick-location').value);
   if (!so || !location) return toast('Enter the sales order and scan the source location first.', 'error');
 
@@ -2708,7 +2691,7 @@ async function lockPickLocation() {
 
 
 async function requestReopenCompletedSalesOrder() {
-  const so = normalizePickSalesOrderInput();
+  const so = $('pick-so').value.trim();
   if (!so || isStockAdjustmentSalesOrder(so)) {
     toast('Enter a completed normal Sales Order number first.', 'error');
     return false;
@@ -3580,7 +3563,7 @@ async function addSupervisorBarcodeBypass(lotId) {
     return toast('Item was not added. The earlier-container recommendation remains in effect.', 'error');
   }
 
-  const visibleSo = normalizePickSalesOrderInput();
+  const visibleSo = $('pick-so').value.trim();
   const approvalSalesOrder = isStockAdjustmentSalesOrder(visibleSo) ? state.pick.adjustmentSessionKey : visibleSo;
   if (!approvalSalesOrder) return toast('The active Sales Order/session could not be identified. Cancel/restart the rack and try again.', 'error');
 
@@ -3907,7 +3890,7 @@ function resetPickCorrectionReporting() {
 }
 
 async function loadPickSalesOrderSummary() {
-  const so = normalizePickSalesOrderInput();
+  const so = $('pick-so').value.trim();
   if (isStockAdjustmentSalesOrder(so)) {
     resetPickCorrectionReporting();
     renderPickSalesOrderSummary();
@@ -4044,7 +4027,7 @@ function renderSavedPickCorrections() {
 function renderPickSalesOrderSummary() {
   const container = $('pick-order-summary');
   if (!container) return;
-  const so = normalizePickSalesOrderInput();
+  const so = $('pick-so').value.trim();
   if (!so) {
     container.innerHTML = emptyState('Enter a sales order number to see its picking summary.');
     return;
@@ -4403,7 +4386,7 @@ async function submitSavedPickReturn(event) {
 }
 
 async function emergencyFinishSalesOrderWithPendingReturn() {
-  const so = normalizePickSalesOrderInput();
+  const so = $('pick-so').value.trim();
 
   if (!so || state.pickOrder.status !== 'OPEN') return toast('An OPEN Sales Order is required.', 'error');
   if (state.pick.lockToken) return toast('Complete or cancel the current rack first.', 'error');
@@ -4565,7 +4548,7 @@ function syncPickOverrideControls() {
 }
 
 async function refreshPickSalesOrderStatus() {
-  const so = normalizePickSalesOrderInput();
+  const so = $('pick-so').value.trim();
   const box = $('pick-so-status');
   const requestNo = ++state.pickOrderLookupSequence;
   state.pickRequestedCorrectionCount = (so && !isStockAdjustmentSalesOrder(so)) ? -1 : 0;
@@ -4592,7 +4575,7 @@ async function refreshPickSalesOrderStatus() {
   const { data, error } = await supabase.rpc('get_pick_sales_order_status', { p_sales_order: so });
 
   // Ignore an older lookup if the user has already entered another sales order.
-  if (requestNo !== state.pickOrderLookupSequence || normalizePickSalesOrder($('pick-so').value) !== so) return false;
+  if (requestNo !== state.pickOrderLookupSequence || $('pick-so').value.trim() !== so) return false;
 
   if (error) {
     state.pickOrder = { salesOrder: so, status: null, pickCount: 0, openedBy: null, isCurrentOwner: false };
@@ -4750,7 +4733,7 @@ async function clearUnstartedPickingScreen(message) {
 }
 
 async function cancelEntirePicking() {
-  const so = normalizePickSalesOrderInput();
+  const so = $('pick-so').value.trim();
   if (!so) return toast('Enter the sales order number.', 'error');
   if (isStockAdjustmentSalesOrder(so)) {
     return exitStockAdjustmentMode();
@@ -4828,7 +4811,7 @@ async function cancelEntirePicking() {
 }
 
 async function finishPickSalesOrder() {
-  const so = normalizePickSalesOrderInput();
+  const so = $('pick-so').value.trim();
   if (!so) return toast('Enter the sales order number.', 'error');
   if (isStockAdjustmentSalesOrder(so)) {
     return toast('Sales Order 0 is reusable Warehouse Stock Adjustment mode. Finish Sales Order is not required.', 'success');
@@ -4864,7 +4847,7 @@ async function completePicking() {
     return toast('A Picking barcode entry is still pending. Add that item, or clear the barcode field before completing this rack.', 'error');
   }
   if (!state.pick.cart.length) return toast('Add at least one item.', 'error');
-  const so = normalizePickSalesOrderInput();
+  const so = $('pick-so').value.trim();
   const adjustmentMode = isStockAdjustmentSalesOrder(so);
   const pickingRemarks = adjustmentMode ? '' : ($('pick-remarks')?.value || '').trim();
   const adjustmentRemarks = adjustmentMode ? ($('pick-adjustment-remarks')?.value || '').trim() : '';
