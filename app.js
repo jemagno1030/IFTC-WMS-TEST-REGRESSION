@@ -540,6 +540,33 @@ function installUomConversionUi() {
     </form>`;
   document.body.appendChild(dialog);
 
+  const varianceDialog = document.createElement('dialog');
+  varianceDialog.id = 'uomc-variance-dialog';
+  varianceDialog.className = 'edit-dialog';
+  varianceDialog.innerHTML = `
+    <div class="scanner-head">
+      <div>
+        <h3>BREAK Variance Detected</h3>
+        <p>The recovered quantity is lower than the configured expected output.</p>
+      </div>
+      <button id="uomc-variance-close" class="icon-button" type="button">✕</button>
+    </div>
+    <form id="uomc-variance-form" class="stack">
+      <div id="uomc-variance-summary" class="info-box"></div>
+      <div class="info-box">
+        Verify the physical quantity before continuing. A separate variance reason is required so an accidental quantity entry cannot be completed as a shortage.
+      </div>
+      <label>Variance reason / explanation *
+        <textarea id="uomc-variance-reason" maxlength="240" rows="3" required
+          placeholder="Example: 1 piece damaged and not recoverable during case break"></textarea>
+      </label>
+      <div class="button-cluster">
+        <button type="submit" class="primary">CONFIRM VARIANCE & COMPLETE</button>
+        <button id="uomc-variance-cancel" type="button" class="ghost">Cancel</button>
+      </div>
+    </form>`;
+  document.body.appendChild(varianceDialog);
+
   ['uomc-source-rack','uomc-destination-rack'].forEach((id) => {
     const input=$(id); if (!input) return;
     input.setAttribute('autocomplete','off'); input.name=`wms-${id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -680,6 +707,56 @@ function syncUomConversionReason() {
   const other=$('uomc-reason')?.value==='OTHER'; $('uomc-other-reason-wrap')?.classList.toggle('hidden',!other); if ($('uomc-other-reason')) $('uomc-other-reason').required=other;
 }
 
+function requestUomVarianceConfirmation({lot,target,sourceQty,expected,actual,variance,reason,destination}) {
+  const dialog=$('uomc-variance-dialog'), form=$('uomc-variance-form'), reasonInput=$('uomc-variance-reason');
+  const summary=$('uomc-variance-summary'), closeBtn=$('uomc-variance-close'), cancelBtn=$('uomc-variance-cancel');
+  if (!dialog||!form||!reasonInput||!summary) return Promise.resolve(null);
+
+  summary.innerHTML=`
+    <strong>BREAK ${escapeHtml(lot.source_uom)} → ${escapeHtml(target)}</strong><br>
+    SKU: ${escapeHtml(lot.sku_name)}<br>
+    Source rack: ${escapeHtml(lot.location_code)} · Destination rack: ${escapeHtml(destination)}<br>
+    Source quantity: <strong>${fmtQtyUom(sourceQty,lot.source_uom)}</strong><br>
+    Expected recovered quantity: <strong>${fmtQtyUom(expected,target)}</strong><br>
+    Actual recovered quantity: <strong>${fmtQtyUom(actual,target)}</strong><br>
+    Shortage / variance: <strong>${fmtQtyUom(variance,target)}</strong><br>
+    Original reason: ${escapeHtml(reason)}
+  `;
+  reasonInput.value='';
+
+  return new Promise((resolve)=>{
+    let settled=false;
+    const cleanup=()=>{
+      form.removeEventListener('submit',onSubmit);
+      closeBtn?.removeEventListener('click',onCancelClick);
+      cancelBtn?.removeEventListener('click',onCancelClick);
+      dialog.removeEventListener('cancel',onDialogCancel);
+    };
+    const finish=(value)=>{
+      if (settled) return;
+      settled=true;
+      cleanup();
+      if (dialog.open) dialog.close();
+      resolve(value);
+    };
+    const onSubmit=(event)=>{
+      event.preventDefault();
+      const varianceReason=reasonInput.value.trim();
+      if (!varianceReason) return toast('Enter a variance reason / explanation before confirming the shortage.','error');
+      finish(varianceReason);
+    };
+    const onCancelClick=()=>finish(null);
+    const onDialogCancel=(event)=>{ event.preventDefault(); finish(null); };
+
+    form.addEventListener('submit',onSubmit);
+    closeBtn?.addEventListener('click',onCancelClick);
+    cancelBtn?.addEventListener('click',onCancelClick);
+    dialog.addEventListener('cancel',onDialogCancel);
+    dialog.showModal();
+    window.setTimeout(()=>reasonInput.focus(),0);
+  });
+}
+
 async function submitUomConversion(event) {
   event.preventDefault();
   const lot=state.uomConversion.selectedLot; if (!lot) return toast('Select a source lot.','error');
@@ -699,13 +776,20 @@ async function submitUomConversion(event) {
   if (!isBreak && actual!==expected) return toast(`REPACK must create exactly ${expected} ${target}.`,'error');
   if (isBreak && actual>expected) return toast('Actual recovered quantity cannot exceed expected quantity in V1.','error');
   const variance=isBreak?expected-actual:0;
-  const confirmed=window.confirm(`${isBreak?'BREAK':'REPACK'} ${lot.source_uom} → ${target}\n\nSKU: ${lot.sku_name}\nSource rack: ${lot.location_code}\nDestination rack: ${destination}\nContainer: ${lot.container_no}\nExpiry: ${fmtDate(lot.expiry_date)}\n\nSource: ${sourceQty} ${lot.source_uom}\nExpected: ${expected} ${target}\nActual: ${actual} ${target}\nVariance: ${variance} ${target}\n\nReason: ${reason}\n\nThis will update inventory atomically. Continue?`);
+
+  let varianceReason='';
+  if (variance>0) {
+    varianceReason=await requestUomVarianceConfirmation({lot,target,sourceQty,expected,actual,variance,reason,destination});
+    if (!varianceReason) return;
+  }
+
+  const confirmed=window.confirm(`${isBreak?'BREAK':'REPACK'} ${lot.source_uom} → ${target}\n\nSKU: ${lot.sku_name}\nSource rack: ${lot.location_code}\nDestination rack: ${destination}\nContainer: ${lot.container_no}\nExpiry: ${fmtDate(lot.expiry_date)}\n\nSource: ${sourceQty} ${lot.source_uom}\nExpected: ${expected} ${target}\nActual: ${actual} ${target}\nVariance: ${variance} ${target}\n\nReason: ${reason}${varianceReason?`\nVariance reason: ${varianceReason}`:''}\n\nThis will update inventory atomically. Continue?`);
   if (!confirmed) return;
   const button=event.submitter; setBusy(button,true,'Converting…');
   try {
-    const {data,error}=await supabase.rpc('complete_uom_conversion_v1',{
+    const {data,error}=await supabase.rpc('complete_uom_conversion_v1_confirmed',{
       p_source_lot_id:lot.lot_id,p_target_uom:target,p_source_qty:sourceQty,p_actual_output_qty:actual,
-      p_destination_location_code:destination,p_reason:reason
+      p_destination_location_code:destination,p_reason:reason,p_variance_reason:varianceReason||null
     });
     if (error) return toast(friendlyError(error),'error');
     const result=data?.[0]||{}; invalidateReports();
