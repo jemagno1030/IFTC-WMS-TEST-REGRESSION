@@ -487,8 +487,8 @@ function installUomConversionUi() {
         <label>Source lot *<select id="uomc-source-lot" required><option value="">Load a source rack first</option></select></label>
         <div id="uomc-lot-detail" class="info-box hidden"></div>
         <div class="form-grid three">
-          <label>Convert to *<select id="uomc-target-uom" required><option value="">Select target UOM</option></select></label>
           <label>Source quantity *<input id="uomc-source-qty" type="number" min="1" step="1" inputmode="numeric" required /></label>
+          <label>Convert to *<select id="uomc-target-uom" required><option value="">Select target UOM</option></select></label>
           <label>Actual output quantity *<input id="uomc-actual-output" type="number" min="1" step="1" inputmode="numeric" required /></label>
         </div>
         <div id="uomc-preview" class="info-box">Select a configured source lot and target UOM.</div>
