@@ -802,6 +802,7 @@ function setupStaticEvents() {
   installSkuMasterBarcodeLessFilterUi();
   installSkuMasterCreateUi();
   installUomConversionUi();
+  installPhysicalRackManagerUi();
   configureCredentialAutofillGuards();
   qsa('[data-auth-tab]').forEach((btn) => btn.addEventListener('click', () => {
     qsa('[data-auth-tab]').forEach((b) => b.classList.toggle('active', b === btn));
@@ -1130,6 +1131,10 @@ function setupStaticEvents() {
     if (pendingRename) openPendingLocationRename(pendingRename.dataset.pendingLocationRename);
     const pendingDelete = event.target.closest('[data-pending-location-delete]');
     if (pendingDelete) deletePendingLocation(pendingDelete.dataset.pendingLocationDelete);
+    const physicalRename = event.target.closest('[data-physical-location-rename]');
+    if (physicalRename) openPhysicalRackRename(physicalRename.dataset.physicalLocationRename);
+    const physicalDelete = event.target.closest('[data-physical-location-delete]');
+    if (physicalDelete) deletePhysicalRack(physicalDelete.dataset.physicalLocationDelete);
     const qr = event.target.closest('[data-qr-location]');
     if (qr) toggleQrSelection(qr.dataset.qrLocation, qr.checked);
   });
@@ -10783,9 +10788,13 @@ function filteredLocationRows() {
 function renderLocationsTable() {
   const rows = filteredLocationRows();
   $('location-count').textContent = `${rows.length.toLocaleString()} shown · ${state.selectedQrLocations.size.toLocaleString()} selected`;
-  $('locations-table').innerHTML = rows.length ? `<table><thead><tr><th></th><th>Code</th><th>Row</th><th>Position</th><th>Name</th><th>Zone</th><th>Type</th><th>Virtual location manager</th></tr></thead><tbody>${rows.map((r) => `<tr>
+  $('locations-table').innerHTML = rows.length ? `<table><thead><tr><th></th><th>Code</th><th>Row</th><th>Position</th><th>Name</th><th>Zone</th><th>Type</th><th>Location manager</th></tr></thead><tbody>${rows.map((r) => `<tr>
     <td><input type="checkbox" data-qr-location="${escapeHtml(r.code)}" ${state.selectedQrLocations.has(r.code) ? 'checked' : ''}></td><td><strong>${escapeHtml(r.code)}</strong></td><td>${escapeHtml(r.row_label || '')}</td><td>${escapeHtml(r.bay_label || '')}</td><td class="wrap">${escapeHtml(r.display_name || '')}</td><td>${escapeHtml(r.zone || '')}</td><td>${r.is_pending ? '<span class="pill near">Pending</span>' : 'Rack'}</td>
-    <td>${r.is_pending ? `<button class="link-btn" type="button" data-pending-location-rename="${escapeHtml(r.id)}">Rename</button> <button class="link-btn" type="button" data-pending-location-delete="${escapeHtml(r.id)}">Delete</button>` : '<small>Physical rack protected</small>'}</td>
+    <td>${r.is_pending
+      ? `<button class="link-btn" type="button" data-pending-location-rename="${escapeHtml(r.id)}">Rename</button> <button class="link-btn" type="button" data-pending-location-delete="${escapeHtml(r.id)}">Delete</button>`
+      : isOwner()
+        ? `<button class="link-btn" type="button" data-physical-location-rename="${escapeHtml(r.id)}">Rename</button> <button class="danger ghost" type="button" data-physical-location-delete="${escapeHtml(r.id)}">Delete</button>`
+        : '<small>Physical rack · Owner only</small>'}</td>
   </tr>`).join('')}</tbody></table>` : emptyState('No locations match the selected row or search.');
 }
 
@@ -10801,6 +10810,11 @@ function clearQrSelection() {
 
 async function addLocation(event) {
   event.preventDefault();
+  const isPending = $('loc-pending').checked;
+  if (!isPending && !isOwner()) {
+    return toast('Owner access is required to add a physical rack. Supervisor/Admin may still add virtual pending locations.', 'error');
+  }
+
   const button = event.submitter;
   setBusy(button, true, 'Adding…');
   const { error } = await supabase.rpc('add_location', {
@@ -10810,7 +10824,7 @@ async function addLocation(event) {
     p_row: $('loc-row').value || null,
     p_bay: $('loc-bay').value || null,
     p_level: $('loc-level').value || null,
-    p_is_pending: $('loc-pending').checked
+    p_is_pending: isPending
   });
   setBusy(button, false);
   if (error) return toast(friendlyError(error), 'error');
@@ -10819,7 +10833,121 @@ async function addLocation(event) {
   state.data.rackMap = [];
   state.data.audit = [];
   state.data.auditFiltered = [];
-  toast('Location added.', 'success');
+  toast(isPending ? 'Virtual pending location added.' : 'Physical rack added. Print its QR label before operational use.', 'success');
+  await loadLocations(true);
+}
+
+function installPhysicalRackManagerUi() {
+  if ($('physical-rack-rename-dialog')) return;
+
+  const locationForm = $('location-form');
+  if (locationForm && !$('physical-rack-owner-note')) {
+    const note = document.createElement('div');
+    note.id = 'physical-rack-owner-note';
+    note.className = 'info-box';
+    note.innerHTML = '<strong>Physical rack control:</strong> physical rack creation is Owner-only. The rack code controls Row/Position metadata automatically (example: L12 = Row L, Position 12). Virtual pending-location creation keeps the existing Supervisor/Admin/Owner behavior.';
+    const actions = locationForm.querySelector('.form-actions');
+    if (actions) locationForm.insertBefore(note, actions);
+    else locationForm.appendChild(note);
+  }
+
+  const dialog = document.createElement('dialog');
+  dialog.id = 'physical-rack-rename-dialog';
+  dialog.className = 'edit-dialog';
+  dialog.innerHTML = `
+    <div class="scanner-head">
+      <div><h3>Rename physical rack</h3><p>Owner only. Administrative Pause is required.</p></div>
+      <button id="physical-rack-rename-close" class="icon-button" type="button">✕</button>
+    </div>
+    <form id="physical-rack-rename-form" class="stack">
+      <input id="physical-rack-rename-id" type="hidden" />
+      <div id="physical-rack-rename-current" class="info-box"></div>
+      <div class="form-grid two">
+        <label>New rack code *<input id="physical-rack-rename-code" required placeholder="L12" /></label>
+        <label>Display name<input id="physical-rack-rename-name" placeholder="Rack L12" /></label>
+      </div>
+      <label>Reason for rename *<textarea id="physical-rack-rename-reason" required maxlength="500" placeholder="Example: warehouse rack signage changed"></textarea></label>
+      <p class="small-note">Rack codes use letters followed by a positive number (for example A1, C97, L12). Row, Position, and natural sort metadata follow the new code automatically. The same internal location ID is preserved, so current stock stays attached. If the code changes, reprint the QR label because the old QR value becomes obsolete.</p>
+      <button class="primary" type="submit">Save physical rack rename</button>
+    </form>`;
+  document.body.appendChild(dialog);
+
+  $('physical-rack-rename-close').addEventListener('click', () => dialog.close());
+  $('physical-rack-rename-form').addEventListener('submit', submitPhysicalRackRename);
+}
+
+function openPhysicalRackRename(locationId) {
+  if (!isOwner()) return toast('Owner access is required to rename a physical rack.', 'error');
+  if (state.mode !== 'ADMINISTRATIVE_PAUSE') return toast('Activate Administrative Pause before renaming a physical rack.', 'error');
+  const row = state.data.locations.find((location) => location.id === locationId);
+  if (!row) return toast('Physical rack not found. Refresh Locations & QR and try again.', 'error');
+  if (row.is_pending) return toast('This is a virtual/pending location. Use its existing virtual-location controls.', 'error');
+
+  $('physical-rack-rename-id').value = row.id;
+  $('physical-rack-rename-current').innerHTML = `<strong>Current physical rack:</strong> ${escapeHtml(row.code)}${row.display_name ? ` · ${escapeHtml(row.display_name)}` : ''}<br><small>Current Row: ${escapeHtml(row.row_label || '—')} · Position: ${escapeHtml(row.bay_label || '—')}. Renaming preserves the same internal location ID and any inventory attached to it.</small>`;
+  $('physical-rack-rename-code').value = row.code || '';
+  $('physical-rack-rename-name').value = row.display_name || `Rack ${row.code || ''}`;
+  $('physical-rack-rename-reason').value = '';
+  $('physical-rack-rename-dialog').showModal();
+  $('physical-rack-rename-code').focus();
+}
+
+async function submitPhysicalRackRename(event) {
+  event.preventDefault();
+  if (!isOwner()) return toast('Owner access is required to rename a physical rack.', 'error');
+  if (state.mode !== 'ADMINISTRATIVE_PAUSE') return toast('Administrative Pause is required for physical-rack maintenance.', 'error');
+
+  const locationId = $('physical-rack-rename-id').value;
+  const oldRow = state.data.locations.find((location) => location.id === locationId);
+  const newCode = $('physical-rack-rename-code').value.trim();
+  const newName = $('physical-rack-rename-name').value.trim();
+  const reason = $('physical-rack-rename-reason').value.trim();
+  if (!newCode) return toast('New physical rack code is required.', 'error');
+  if (!reason) return toast('Reason for renaming is required.', 'error');
+
+  const button = event.submitter;
+  setBusy(button, true, 'Renaming…');
+  const { data, error } = await supabase.rpc('owner_rename_physical_location_v1', {
+    p_location_id: locationId,
+    p_new_code: newCode,
+    p_new_display_name: newName || null,
+    p_reason: reason
+  });
+  setBusy(button, false);
+  if (error) return toast(friendlyError(error), 'error');
+
+  $('physical-rack-rename-dialog').close();
+  if (oldRow?.code) state.selectedQrLocations.delete(oldRow.code);
+  state.data.locations = [];
+  invalidateReports();
+  const result = data?.[0] || {};
+  toast(`Physical rack renamed: ${result.old_code || oldRow?.code || 'rack'} → ${result.new_code || newCode}. Reprint its QR label.`, 'success');
+  await loadLocations(true);
+}
+
+async function deletePhysicalRack(locationId) {
+  if (!isOwner()) return toast('Owner access is required to delete a physical rack.', 'error');
+  if (state.mode !== 'ADMINISTRATIVE_PAUSE') return toast('Activate Administrative Pause before deleting a physical rack.', 'error');
+  const row = state.data.locations.find((location) => location.id === locationId);
+  if (!row) return toast('Physical rack not found. Refresh Locations & QR and try again.', 'error');
+  if (row.is_pending) return toast('This is a virtual/pending location. Use its existing virtual-location controls.', 'error');
+
+  const reason = window.prompt(`Reason for deleting physical rack ${row.code} (required):`);
+  if (!reason?.trim()) return toast('Physical rack was not deleted because a reason is required.', 'error');
+
+  const confirmed = window.confirm(`Delete physical rack ${row.code} from active warehouse use?\n\nDatabase safety rules:\n• ZERO positive inventory is required.\n• No active Picking / Transfer / UOM Conversion lock may exist.\n• No active SEALED / OPEN Shipper Box may remain in the rack.\n• Historical transaction references are preserved.\n• The rack code remains reserved after deletion, so an old QR cannot silently point to a different rack.\n\nThis is a soft delete. Continue?`);
+  if (!confirmed) return;
+
+  const { data, error } = await supabase.rpc('owner_delete_physical_location_v1', {
+    p_location_id: locationId,
+    p_reason: reason.trim()
+  });
+  if (error) return toast(friendlyError(error), 'error');
+
+  state.selectedQrLocations.delete(row.code);
+  state.data.locations = [];
+  invalidateReports();
+  toast(`Physical rack ${data?.[0]?.result_location_code || row.code} removed from active warehouse use. History and code reservation were preserved.`, 'success');
   await loadLocations(true);
 }
 
