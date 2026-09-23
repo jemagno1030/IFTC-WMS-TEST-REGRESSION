@@ -1,0 +1,452 @@
+{
+  "project": "IFTC WAREHOUSE LOCATOR SYSTEM (JPM)",
+  "environment": "TEST_ONLY",
+  "repository": "jemagno1030/IFTC-WMS-TEST-REGRESSION",
+  "base_branch": "main",
+  "base_commit": "18c63cbb3705a8cfe60438055b70a34e8e9cf812",
+  "head_branch": "automation/ar3-operational-suites",
+  "supabase_project_ref": "gfswztynzocobxbtaitc",
+  "test_cluster_system_identifier": "7678069749886157684",
+  "live_writes_allowed": false,
+  "execution_model": "rollback_only",
+  "expected_operational_scenario_count": 85,
+  "suites": [
+    {
+      "suite": "AR-3.2",
+      "name": "Put-away",
+      "scenario_count": 12,
+      "sql": "regression/sql/03-ar3-putaway-rollback.sql",
+      "scenarios": [
+        {
+          "id": "P01",
+          "name": "Barcoded multi-UOM put-away and per-line remarks"
+        },
+        {
+          "id": "P02",
+          "name": "Negative quantity"
+        },
+        {
+          "id": "P03",
+          "name": "Decimal quantity"
+        },
+        {
+          "id": "P04",
+          "name": "All-zero quantities"
+        },
+        {
+          "id": "P05",
+          "name": "Missing expiry"
+        },
+        {
+          "id": "P06",
+          "name": "Missing container"
+        },
+        {
+          "id": "P07",
+          "name": "Duplicate exact row"
+        },
+        {
+          "id": "P08",
+          "name": "All N/A without explicit selection"
+        },
+        {
+          "id": "P09",
+          "name": "Explicit barcode-less creation"
+        },
+        {
+          "id": "P10",
+          "name": "Partial N/A"
+        },
+        {
+          "id": "P11",
+          "name": "Inactive physical rack"
+        },
+        {
+          "id": "P12",
+          "name": "Remark length boundary"
+        }
+      ]
+    },
+    {
+      "suite": "AR-3.3",
+      "name": "Stock Transfer",
+      "scenario_count": 10,
+      "sql": "regression/sql/04-ar3-transfer-rollback.sql",
+      "scenarios": [
+        {
+          "id": "T01",
+          "name": "Partial transfer, paired remarks and released lock"
+        },
+        {
+          "id": "T02",
+          "name": "Zero transfer"
+        },
+        {
+          "id": "T03",
+          "name": "Fractional transfer"
+        },
+        {
+          "id": "T04",
+          "name": "Wrong barcode/UOM"
+        },
+        {
+          "id": "T05",
+          "name": "N/A substituted for real barcode"
+        },
+        {
+          "id": "T06",
+          "name": "Whole-rack transfer of two lots"
+        },
+        {
+          "id": "T07",
+          "name": "Whole-rack destination locked"
+        },
+        {
+          "id": "T08",
+          "name": "Same source and destination"
+        },
+        {
+          "id": "T09",
+          "name": "Invalid source lock"
+        },
+        {
+          "id": "T10",
+          "name": "Insufficient quantity with dynamic UUID"
+        }
+      ]
+    },
+    {
+      "suite": "AR-3.4",
+      "name": "Picking / SO / SO-0",
+      "scenario_count": 9,
+      "sql": "regression/sql/05-ar3-picking-so-so0-rollback.sql",
+      "scenarios": [
+        {
+          "id": "S01",
+          "name": "Empty SO cancellation releases order and lock"
+        },
+        {
+          "id": "S02",
+          "name": "Saved pick blocks cancel and permits Finish"
+        },
+        {
+          "id": "S03",
+          "name": "Completed SO reuse blocked"
+        },
+        {
+          "id": "S04",
+          "name": "Completed SO cancel blocked"
+        },
+        {
+          "id": "S05",
+          "name": "Approved reopen, repick and complete"
+        },
+        {
+          "id": "S06",
+          "name": "Finish blocked by active source session"
+        },
+        {
+          "id": "S07",
+          "name": "SO-0 requires remarks then saves adjustment"
+        },
+        {
+          "id": "S08",
+          "name": "Two independent SO-0 sessions"
+        },
+        {
+          "id": "S09",
+          "name": "SO-0 cancel removes control and lock"
+        }
+      ]
+    },
+    {
+      "suite": "AR-3.5",
+      "name": "FEFO + Container Priority",
+      "scenario_count": 10,
+      "sql": "regression/sql/06-ar3-fefo-container-priority-rollback.sql",
+      "scenarios": [
+        {
+          "id": "F01",
+          "name": "Earliest expiry normal"
+        },
+        {
+          "id": "F02",
+          "name": "Later expiry needs line confirmation"
+        },
+        {
+          "id": "F03",
+          "name": "Global FEFO allow required"
+        },
+        {
+          "id": "F04",
+          "name": "FEFO reason required"
+        },
+        {
+          "id": "F05",
+          "name": "Confirmed FEFO override stores recommendation"
+        },
+        {
+          "id": "F06",
+          "name": "Expired earlier stock ignored"
+        },
+        {
+          "id": "C01",
+          "name": "Later same-expiry container needs confirmation"
+        },
+        {
+          "id": "C02",
+          "name": "Container confirmation audited without FEFO"
+        },
+        {
+          "id": "C03",
+          "name": "Expiry outranks container sequence"
+        },
+        {
+          "id": "C04",
+          "name": "Fully queued earlier container permits next"
+        }
+      ]
+    },
+    {
+      "suite": "AR-3.6",
+      "name": "Saved Pick Correction",
+      "scenario_count": 12,
+      "sql": "regression/sql/07-ar3-saved-pick-correction-rollback.sql",
+      "scenarios": [
+        {
+          "id": "SP01",
+          "name": "Report physical return without stock restoration"
+        },
+        {
+          "id": "SP02",
+          "name": "Requested review blocks Finish"
+        },
+        {
+          "id": "SP03",
+          "name": "Approve unchanged physical return"
+        },
+        {
+          "id": "SP04",
+          "name": "Pending return blocks Finish"
+        },
+        {
+          "id": "SP05",
+          "name": "Wrong return rack"
+        },
+        {
+          "id": "SP06",
+          "name": "Wrong return barcode"
+        },
+        {
+          "id": "SP07",
+          "name": "Return restores original lot and allows Finish"
+        },
+        {
+          "id": "SP08",
+          "name": "Still in original rack automatically restores"
+        },
+        {
+          "id": "SP09",
+          "name": "Quantity change requires note; return two of three"
+        },
+        {
+          "id": "SP10",
+          "name": "Second correction changes physical status"
+        },
+        {
+          "id": "SP11",
+          "name": "Over-correction rejected after full restoration"
+        },
+        {
+          "id": "SP12",
+          "name": "Rejection preserves stock and signed Pick"
+        }
+      ]
+    },
+    {
+      "suite": "AR-3.7",
+      "name": "UOM BREAK / REPACK",
+      "scenario_count": 15,
+      "sql": "regression/sql/08-ar3-uom-break-repack-rollback.sql",
+      "scenarios": [
+        {
+          "id": "U01",
+          "name": "Enable CASE 12 / PACK 6 / PIECE"
+        },
+        {
+          "id": "U02",
+          "name": "Single enabled UOM blocked"
+        },
+        {
+          "id": "U03",
+          "name": "Non-integral CASE/PACK ratio blocked"
+        },
+        {
+          "id": "U04",
+          "name": "Discover source and conversion factors"
+        },
+        {
+          "id": "U05",
+          "name": "BREAK CASE into two PACK"
+        },
+        {
+          "id": "U06",
+          "name": "BREAK CASE into twelve PIECE"
+        },
+        {
+          "id": "U07",
+          "name": "Shortage needs variance confirmation"
+        },
+        {
+          "id": "U08",
+          "name": "Confirmed shortage records expected actual variance"
+        },
+        {
+          "id": "U09",
+          "name": "Overage blocked"
+        },
+        {
+          "id": "U10",
+          "name": "REPACK six PIECE into one PACK"
+        },
+        {
+          "id": "U11",
+          "name": "Incomplete REPACK blocked"
+        },
+        {
+          "id": "U12",
+          "name": "REPACK output must be exact"
+        },
+        {
+          "id": "U13",
+          "name": "Relocated conversion preserves inventory identity"
+        },
+        {
+          "id": "U14",
+          "name": "Same UOM blocked"
+        },
+        {
+          "id": "U15",
+          "name": "Existing operation lock blocks conversion"
+        }
+      ]
+    },
+    {
+      "suite": "AR-3.8",
+      "name": "Physical Rack Safeguards",
+      "scenario_count": 17,
+      "sql": "regression/sql/09-ar3-physical-rack-rollback.sql",
+      "scenarios": [
+        {
+          "id": "R01",
+          "name": "Rack addition normalizes case and metadata"
+        },
+        {
+          "id": "R02",
+          "name": "Invalid rack code"
+        },
+        {
+          "id": "R03",
+          "name": "Rename requires pause"
+        },
+        {
+          "id": "R04",
+          "name": "Delete requires pause"
+        },
+        {
+          "id": "R05",
+          "name": "Reactivate requires pause"
+        },
+        {
+          "id": "R06",
+          "name": "Locked rack rename blocked"
+        },
+        {
+          "id": "R07",
+          "name": "Locked rack deletion blocked"
+        },
+        {
+          "id": "R08",
+          "name": "Positive stock prevents deletion"
+        },
+        {
+          "id": "R09",
+          "name": "Invalid rename format"
+        },
+        {
+          "id": "R10",
+          "name": "Existing A1 code reserved"
+        },
+        {
+          "id": "R11",
+          "name": "Rename retains UUID and stock relationship"
+        },
+        {
+          "id": "R12",
+          "name": "Empty rack soft-delete retains identity"
+        },
+        {
+          "id": "R13",
+          "name": "Soft-deleted code cannot be reused"
+        },
+        {
+          "id": "R14",
+          "name": "Reactivate preserves UUID and history"
+        },
+        {
+          "id": "R15",
+          "name": "Already active reactivate blocked"
+        },
+        {
+          "id": "R16",
+          "name": "Pending location rename protected"
+        },
+        {
+          "id": "R17",
+          "name": "Pending location delete protected"
+        }
+      ]
+    }
+  ],
+  "zero_residue_sql": "regression/sql/10-ar3-zero-residue-readonly.sql",
+  "sequence_note": "PostgreSQL sequences may advance despite rollback",
+  "manual_only": [
+    "camera barcode scanning",
+    "QR camera scanning",
+    "actual QR/label printing",
+    "printer/PDF visual layout",
+    "mobile/touch visual layout",
+    "modal/visual confirmation presentation"
+  ],
+  "validation_provenance": {
+    "scenario_design": "Connector-driven execution on 2026-09-23, as reported by the supplied AR-3 packaging instructions",
+    "packaged_sql": "Not executed during packaging; independent post-PR connector review and execution must PASS before merge"
+  },
+  "protected_baseline": {
+    "columns": "421691d15249078e73d06f2d096115ef",
+    "constraints": "df5722f50d619e55426452470da4da9d",
+    "indexes": "1b096806b4c8b109da23eb93c7c28323",
+    "policies": "c079a0c6353b15436c29f7e07ac9e01c",
+    "triggers": "8f9bc642ceceed6fe1392205b281f285",
+    "rls": "350ddef04efdc64ee7fc43c43a79841b",
+    "functions": "8a82ab6596d917ce41b94cc10a1f60ab"
+  },
+  "protected_function_hashes": {
+    "complete_putaway_with_user_remarks": "4315d1c1554acbb19c7dcd96481b580f",
+    "complete_transfer_with_user_remarks": "2fb4af446e9f4353eb07e956017264ff",
+    "complete_picking_with_approvals_and_container_audit": "61135989b67061c885ec17879d586d24",
+    "complete_stock_adjustment_picking_with_remarks": "4605135dbdfe7c01fc34045fbea72e52",
+    "apply_stock_delta": "e46155c4022ffe722fe2c4d31f7bd069",
+    "acquire_location_lock": "cd7cc3060b3f67d5d0e7afe7da6b48de",
+    "admin_set_sku_uom_conversion_config_v1": "312ec3827b8d633b7beb47cdcfed9a55",
+    "get_sku_uom_conversion_config_v1": "6621094f8eb9c314c54300422efdbf70",
+    "get_uom_conversion_source_lots_v1": "473a6f93f8c6a3546529dc9b67299ffe",
+    "complete_uom_conversion_v1": "e6de0347174f56af854b39d35302efe3",
+    "complete_uom_conversion_v1_confirmed": "fc8e1f6f4c417cf7722111babe8bbe2c",
+    "guard_uom_conversion_variance_confirmation_v1": "fce3bd343915bc6d375c67da57532799",
+    "add_location": "457aa9546e97e0ff7c45b7e5acc53bb6",
+    "owner_delete_physical_location_v1": "5b74db70b7a98aa126bd8bd0b5f01780",
+    "owner_reactivate_physical_location_v1": "366ff95b93ef334d1d649247c73f6fdb",
+    "owner_rename_physical_location_v1": "7ea4f3bafce59eadbde163e484633bc7"
+  }
+}
