@@ -1,0 +1,30 @@
+{
+  "project": "IFTC WAREHOUSE LOCATOR SYSTEM (JPM)",
+  "version": "regression-v1-seed",
+  "live": {
+    "github": {
+      "repository": "jemagno1030/warehouse-wms",
+      "branch": "main"
+    },
+    "supabase": {
+      "project_ref": "sqpxgwhhfxojzblitnni",
+      "mode": "READ_ONLY_REGRESSION"
+    }
+  },
+  "test": {
+    "github": {
+      "repository": "jemagno1030/IFTC-WMS-TEST-REGRESSION",
+      "branch": "main"
+    },
+    "supabase": {
+      "project_ref": "gfswztynzocobxbtaitc",
+      "mode": "CONTROLLED_TEST_REGRESSION"
+    }
+  },
+  "abort_on_identity_mismatch": true,
+  "live_writes_allowed": false,
+  "expected_github_differences": [
+    "config.js",
+    "styles.css:test-environment-marker"
+  ]
+}
