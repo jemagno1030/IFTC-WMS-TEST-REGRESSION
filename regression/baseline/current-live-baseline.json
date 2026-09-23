@@ -1,0 +1,93 @@
+{
+  "captured_on": "2026-09-23",
+  "operational_mode": "ACTIVE",
+  "github": {
+    "live_head": "296df8f69da2f0574f23080428f412fa44c71c39",
+    "test_head": "123ba20bfcab0b2822f66915036e3c6a4a9044d7",
+    "shared_blobs": {
+      "app.js": "92ab8245c604d9052a2e93d8094d9c73eb9d7b7c",
+      "index.html": "c371dcad076193a56a3efe63a8a742be6c3aaf20",
+      "config.example.js": "03e7f43a564ec1da49f9d2c58767254f42d5e72a",
+      "icon.svg": "e4a9c85ed12bd561ab346e8fb4744261a08aa3d9",
+      "manifest.webmanifest": "6024f0b2655960dbd0e5eb8e1a28d6130a24b1d5"
+    },
+    "environment_specific": {
+      "live_config_blob": "cf8373a2d82efb42c539a09955b3bf84b0506550",
+      "test_config_blob": "92fa774ee7be8e5b1670bd7fdcbcbbff570b51e4",
+      "live_styles_blob": "06524a8f4d54603d7d71bd16012be62c72fadc4a",
+      "test_styles_blob": "d32accfe190dd3130436682e3603ace21a0b5430"
+    }
+  },
+  "schema": {
+    "public_tables": 29,
+    "columns": {"count": 510, "md5": "421691d15249078e73d06f2d096115ef"},
+    "constraints": {"count": 148, "md5": "df5722f50d619e55426452470da4da9d"},
+    "indexes": {"count": 71, "md5": "1b096806b4c8b109da23eb93c7c28323"},
+    "policies": {"count": 19, "md5": "c079a0c6353b15436c29f7e07ac9e01c"},
+    "triggers": {"count": 17, "md5": "8f9bc642ceceed6fe1392205b281f285"},
+    "rls": {"table_count": 29, "md5": "350ddef04efdc64ee7fc43c43a79841b"},
+    "functions": {"count": 136, "body_differences_live_vs_test": 0}
+  },
+  "critical_functions": {
+    "complete_putaway_with_user_remarks(text,jsonb)": "4315d1c1554acbb19c7dcd96481b580f",
+    "complete_transfer_with_user_remarks(text,text,uuid,jsonb)": "2fb4af446e9f4353eb07e956017264ff",
+    "complete_picking_with_approvals_and_container_audit(text,uuid,text,jsonb,boolean,text,text)": "61135989b67061c885ec17879d586d24",
+    "complete_stock_adjustment_picking_with_remarks(text,uuid,text,jsonb,text,boolean,text)": "4605135dbdfe7c01fc34045fbea72e52",
+    "apply_stock_delta(uuid,uuid,uuid,text,date,text,numeric)": "e46155c4022ffe722fe2c4d31f7bd069",
+    "acquire_location_lock(text,text,text,boolean,text)": "cd7cc3060b3f67d5d0e7afe7da6b48de",
+    "owner_full_reset_wms(text)": "68f1b3415e9c70f927043238ec05f887",
+    "owner_full_reset_preview()": "361d4790dd157084ef7aa1c50f25adef",
+    "owner_full_reset_wms_vnext(text)": "7706d061cbc99cab5f13992131338ad5",
+    "owner_full_reset_preview_vnext()": "f625aa5562ff27b960dad35fac546b01",
+    "owner_edit_sku_master(...)": "4d6a614141ba6e1f6bbf59a886b82cba",
+    "admin_create_sku_master_v1(...)": "43806ed62e383cd48282cf7c28818411",
+    "admin_set_sku_uom_conversion_config_v1(...)": "312ec3827b8d633b7beb47cdcfed9a55",
+    "get_sku_uom_conversion_config_v1(uuid)": "6621094f8eb9c314c54300422efdbf70",
+    "get_uom_conversion_source_lots_v1(text)": "473a6f93f8c6a3546529dc9b67299ffe",
+    "complete_uom_conversion_v1(...)": "e6de0347174f56af854b39d35302efe3",
+    "complete_uom_conversion_v1_confirmed(...)": "fc8e1f6f4c417cf7722111babe8bbe2c",
+    "guard_uom_conversion_variance_confirmation_v1()": "fce3bd343915bc6d375c67da57532799",
+    "get_sku_balance_stock_card(...)": "30b8a859324227ecb61297c1024fd92e",
+    "owner_delete_physical_location_v1(uuid,text)": "5b74db70b7a98aa126bd8bd0b5f01780",
+    "owner_reactivate_physical_location_v1(uuid,text)": "366ff95b93ef334d1d649247c73f6fdb",
+    "owner_rename_physical_location_v1(uuid,text,text,text)": "7ea4f3bafce59eadbde163e484633bc7",
+    "add_location(text,text,text,text,text,text,boolean)": "457aa9546e97e0ff7c45b7e5acc53bb6"
+  },
+  "function_execute_privileges": {
+    "live": {"anon": 13, "authenticated": 99, "service_role": 136},
+    "test": {"anon": 13, "authenticated": 99, "service_role": 136},
+    "differences": 0
+  },
+  "live_counts_at_capture": {
+    "profiles": 26,
+    "owners": 1,
+    "locations": 742,
+    "active_physical": 738,
+    "inactive_physical": 0,
+    "active_pending": 4,
+    "skus": 574,
+    "uom_configs": 2,
+    "stock_lots": 2315,
+    "positive_stock_lots": 1153,
+    "transactions": 4796,
+    "transaction_lines": 6005,
+    "audit_log": 11553,
+    "sales_orders": 544,
+    "shipper_boxes": 30,
+    "saved_pick_corrections": 27,
+    "active_location_locks": 0
+  },
+  "test_counts_at_capture": {
+    "profiles": 1,
+    "owners": 1,
+    "locations": 743,
+    "active_physical": 738,
+    "inactive_physical": 1,
+    "active_pending": 4,
+    "skus": 0,
+    "uom_configs": 0,
+    "stock_lots": 0,
+    "transactions": 1,
+    "active_location_locks": 0
+  }
+}
