@@ -380,7 +380,7 @@ function installUi() {
 function bindEvents() {
   $('receiving-v1-nav')?.addEventListener('click', (event) => {
     event.preventDefault();
-    void openReceiving();
+    void openReceiving({ restoreScroll: true });
   });
 
   qsa('#screen-receiving [data-rcv-tab]').forEach((btn) => btn.addEventListener('click', () => setTab(btn.dataset.rcvTab)));
@@ -419,6 +419,7 @@ function bindEvents() {
   document.addEventListener('click', (event) => {
     const target = event.target.closest('#main-nav [data-screen], [data-jump]');
     if (!target || target.id === 'receiving-v1-nav') return;
+    if ($('screen-receiving')?.classList.contains('active')) rememberReceivingScroll();
     markReceivingActive(false);
   }, true);
 
@@ -437,12 +438,15 @@ function bindEvents() {
 
 function markReceivingActive(active) {
   try {
-    if (active) {
-      sessionStorage.setItem('receiving-v1-active', '1');
-    } else {
-      sessionStorage.removeItem('receiving-v1-active');
-      sessionStorage.removeItem('receiving-v1-scroll-y');
-    }
+    if (active) sessionStorage.setItem('receiving-v1-active', '1');
+    else sessionStorage.removeItem('receiving-v1-active');
+  } catch (_) {}
+}
+
+function clearReceivingPersistence() {
+  try {
+    sessionStorage.removeItem('receiving-v1-active');
+    sessionStorage.removeItem('receiving-v1-scroll-y');
   } catch (_) {}
 }
 
@@ -1163,13 +1167,13 @@ async function loadReceiving(force = false) {
   syncRoleMode();
 }
 
-async function openReceiving() {
+async function openReceiving({ restoreScroll = false } = {}) {
   try {
     await refreshAccess();
     if (!state.session) return toast('Sign in first.', 'error');
     if (!state.profile?.is_active) return toast('This account is inactive.', 'error');
 
-    activateReceivingScreen();
+    activateReceivingScreen({ restoreScroll });
     await loadReceiving(false);
   } catch (error) {
     toast(friendlyError(error), 'error');
@@ -1287,7 +1291,7 @@ function subscribeModeAndProfile() {
 async function handleAuth(session) {
   state.session = session;
   if (!session) {
-    markReceivingActive(false);
+    clearReceivingPersistence();
     state.profile = null;
     state.cart = [];
     state.pendingRows = [];
@@ -1327,7 +1331,7 @@ async function boot() {
   // If Receiving was the active screen before a normal page reload or a browser
   // auth/session refresh, restore it just like a native WMS module.
   if (receivingShouldStayActive()) {
-    setTimeout(() => { void openReceiving(); }, 250);
+    setTimeout(() => { void openReceiving({ restoreScroll: true }); }, 250);
   }
 
   const reopen = sessionStorage.getItem('receiving-v1-reopen-after-putaway') === '1';
@@ -1337,7 +1341,7 @@ async function boot() {
     sessionStorage.removeItem('receiving-v1-success-message');
 
     setTimeout(() => {
-      void openReceiving().then(() => {
+      void openReceiving({ restoreScroll: true }).then(() => {
         if (message) toast(message, 'success');
       });
     }, 400);
