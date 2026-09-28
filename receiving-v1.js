@@ -1,0 +1,1239 @@
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+import { BrowserMultiFormatReader, BrowserCodeReader } from 'https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/+esm';
+
+/*
+IFTC WAREHOUSE LOCATOR SYSTEM (JPM)
+Receiving / Delivery & Backload Return V1
+Stage 4 TEST Frontend Integration
+TARGET ONLY:
+  GitHub: jemagno1030/IFTC-WMS-TEST-REGRESSION
+  Supabase: gfswztynzocobxbtaitc
+LIVE warehouse-wms / sqpxgwhhfxojzblitnni must not be used with this file.
+*/
+
+const EXPECTED_TEST_URL = 'https://gfswztynzocobxbtaitc.supabase.co';
+const cfg = window.WMS_CONFIG || {};
+const configReady =
+  cfg.SUPABASE_URL === EXPECTED_TEST_URL &&
+  Boolean(cfg.SUPABASE_ANON_KEY);
+
+const supabase = configReady
+  ? createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+    })
+  : null;
+
+const $ = (id) => document.getElementById(id);
+const qsa = (selector, root = document) => [...root.querySelectorAll(selector)];
+const fmtQty = (value) => Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 3 });
+const fmtDate = (value) => value ? new Date(`${String(value).slice(0, 10)}T00:00:00`).toLocaleDateString() : '—';
+const fmtDateTime = (value) => value ? new Date(value).toLocaleString() : '—';
+
+const state = {
+  session: null,
+  profile: null,
+  mode: 'ACTIVE',
+  skus: [],
+  profiles: [],
+  cart: [],
+  pendingRows: [],
+  reportRows: [],
+  selectedReceiptId: null,
+  tab: 'ops',
+  backloadDuplicate: false,
+  modeChannel: null,
+  profileChannel: null,
+  navObserver: null,
+  scanner: { target: null, kind: null, reader: null, controls: null }
+};
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[ch]));
+}
+
+function toast(message, type = '') {
+  const root = $('toast-root');
+  if (!root) return;
+  const node = document.createElement('div');
+  node.className = `toast ${type}`;
+  node.textContent = message;
+  root.appendChild(node);
+  setTimeout(() => node.remove(), 5200);
+}
+
+function friendlyError(error) {
+  const message = error?.message || error?.details || String(error || 'Unknown error');
+  return String(message)
+    .replace(/^PGRST\d+:\s*/i, '')
+    .replace(/^PostgrestError:\s*/i, '');
+}
+
+function emptyState(message) {
+  return `<div class="empty-state">${escapeHtml(message)}</div>`;
+}
+
+function setBusy(button, busy, busyText = 'Working…') {
+  if (!button) return;
+  if (busy) {
+    if (!button.dataset.rcvOriginalText) button.dataset.rcvOriginalText = button.textContent;
+    button.textContent = busyText;
+    button.disabled = true;
+  } else {
+    if (button.dataset.rcvOriginalText) button.textContent = button.dataset.rcvOriginalText;
+    delete button.dataset.rcvOriginalText;
+    button.disabled = false;
+  }
+}
+
+function normalizeLocation(value) {
+  return String(value || '').trim().toUpperCase().replace(/\s+/g, '');
+}
+
+function isViewer() {
+  return String(state.profile?.role || '').toLowerCase() === 'viewer';
+}
+
+function isActiveAccount() {
+  return Boolean(state.session && state.profile?.is_active);
+}
+
+function installStyles() {
+  if ($('receiving-v1-style')) return;
+  const style = document.createElement('style');
+  style.id = 'receiving-v1-style';
+  style.textContent = `
+    #screen-receiving .rcv-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+    #screen-receiving .rcv-tab-btn.active{font-weight:800;box-shadow:inset 0 0 0 2px currentColor}
+    #screen-receiving .rcv-grid{display:grid;grid-template-columns:minmax(0,1.18fr) minmax(320px,.82fr);gap:14px;align-items:start}
+    #screen-receiving .rcv-line-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    #screen-receiving .rcv-qty-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+    #screen-receiving .rcv-table-actions{display:flex;gap:8px;flex-wrap:wrap}
+    #screen-receiving .rcv-status-note{margin-top:8px}
+    #screen-receiving .rcv-danger{color:#9f1239;font-weight:700}
+    #screen-receiving .rcv-good{color:#166534;font-weight:700}
+    #screen-receiving .rcv-pending-lines label{display:flex;gap:8px;align-items:flex-start;margin:8px 0}
+    #screen-receiving .rcv-pending-lines input[type="checkbox"]{margin-top:4px;width:auto}
+    #screen-receiving .rcv-report-summary{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
+    #screen-receiving .rcv-summary-chip{border:1px solid #d7dee7;border-radius:999px;padding:5px 10px;background:#fff;font-size:.85rem}
+    #screen-receiving .rcv-test-badge{display:inline-block;border-radius:999px;padding:4px 9px;background:#fff3cd;color:#7a4b00;font-weight:800;font-size:.8rem}
+    #screen-receiving .rcv-warning{color:#8a4b00;font-weight:700}
+    @media(max-width:900px){#screen-receiving .rcv-grid,#screen-receiving .rcv-line-grid{grid-template-columns:1fr}}
+    @media(max-width:620px){#screen-receiving .rcv-qty-grid{grid-template-columns:1fr}}
+  `;
+  document.head.appendChild(style);
+}
+
+function installScannerDialog() {
+  if ($('rcv-scanner-dialog')) return;
+  const dialog = document.createElement('dialog');
+  dialog.id = 'rcv-scanner-dialog';
+  dialog.className = 'scanner-dialog';
+  dialog.innerHTML = `
+    <div class="scanner-head">
+      <div><h3 id="rcv-scanner-title">Scan code</h3><p>Receiving V1 TEST scanner.</p></div>
+      <button id="rcv-scanner-close" class="icon-button" type="button" aria-label="Close">✕</button>
+    </div>
+    <video id="rcv-scanner-video" playsinline muted></video>
+    <div class="scanner-line"></div>
+    <div class="scanner-controls">
+      <select id="rcv-camera-select"></select>
+      <button id="rcv-camera-start" class="secondary" type="button">Start camera</button>
+    </div>
+    <form id="rcv-manual-scan-form" class="manual-scan">
+      <input id="rcv-manual-scan-input" autocomplete="off" placeholder="Or type / use a USB scanner" />
+      <button class="primary" type="submit">Use code</button>
+    </form>
+    <p id="rcv-scanner-status" class="hint">Camera access requires HTTPS and browser permission.</p>
+  `;
+  document.body.appendChild(dialog);
+
+  $('rcv-scanner-close').addEventListener('click', closeScanner);
+  $('rcv-camera-start').addEventListener('click', () => void startCamera());
+  $('rcv-camera-select').addEventListener('change', () => void startCamera());
+  $('rcv-manual-scan-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    acceptScannedValue($('rcv-manual-scan-input').value);
+  });
+  dialog.addEventListener('close', stopCamera);
+}
+
+function installUi() {
+  if ($('screen-receiving')) return;
+  installStyles();
+  installScannerDialog();
+
+  const putawayNav = document.querySelector('#main-nav [data-screen="putaway"]');
+  if (putawayNav && !$('receiving-v1-nav')) {
+    const btn = putawayNav.cloneNode(true);
+    btn.id = 'receiving-v1-nav';
+    btn.dataset.screen = 'receiving-v1-standalone';
+    btn.removeAttribute('data-role-min');
+    const label = btn.querySelector('span:last-child');
+    if (label) label.textContent = 'Receiving'; else btn.textContent = 'Receiving';
+    putawayNav.insertAdjacentElement('beforebegin', btn);
+  }
+
+  const screen = document.createElement('section');
+  screen.id = 'screen-receiving';
+  screen.className = 'screen';
+  screen.innerHTML = `
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h3>Receiving / Delivery & Backload Return V1 <span class="rcv-test-badge">TEST</span></h3>
+          <p>Record inbound documents first. Inventory changes only when received lines are put away through the protected existing Put-away engine.</p>
+        </div>
+      </div>
+      <div class="info-box">
+        Stock identity remains <strong>SKU + Container No. + Expiry + UOM</strong>. Receiving V1 does not add a manufacturer Lot/Batch field.
+      </div>
+      <div class="rcv-tabs">
+        <button type="button" class="secondary rcv-tab-btn active" data-rcv-tab="ops">Receive / Put-away</button>
+        <button type="button" class="secondary rcv-tab-btn" data-rcv-tab="report">Receiving Report</button>
+      </div>
+    </div>
+
+    <div id="rcv-tab-ops">
+      <div id="rcv-operational-panel" class="rcv-grid">
+        <div class="card">
+          <div class="card-head"><div><h3>1. Record received goods</h3><p>Only existing active STANDARD SKUs can be received.</p></div></div>
+          <form id="rcv-receipt-form" class="stack">
+            <div class="form-grid two">
+              <label>Receiving type *
+                <select id="rcv-type" required>
+                  <option value="REGULAR_DELIVERY">Regular Delivery</option>
+                  <option value="BACKLOAD_RETURN">Backload Return</option>
+                </select>
+              </label>
+              <label>Source / Supplier
+                <input id="rcv-source" maxlength="200" autocomplete="off" placeholder="Supplier, source, truck, or return origin" />
+              </label>
+            </div>
+
+            <div class="form-grid two">
+              <label>Document type
+                <input id="rcv-doc-type" maxlength="100" autocomplete="off" placeholder="e.g. DR, Invoice, Customer DR" />
+              </label>
+              <label>Document number
+                <input id="rcv-doc-number" maxlength="200" autocomplete="off" placeholder="Document reference" />
+              </label>
+            </div>
+
+            <div id="rcv-backload-fields" class="form-grid two hidden">
+              <label>Intended customer name *
+                <input id="rcv-customer" maxlength="200" autocomplete="off" />
+              </label>
+              <label>Return reason *
+                <textarea id="rcv-return-reason" maxlength="1000" rows="2"></textarea>
+              </label>
+            </div>
+
+            <div id="rcv-duplicate-note" class="small-note rcv-status-note"></div>
+
+            <label>Receiving remarks
+              <textarea id="rcv-remarks" maxlength="2000" rows="2" placeholder="Optional receiving-level remarks"></textarea>
+            </label>
+
+            <div class="card" style="margin:0">
+              <div class="card-head"><div><h4>Add SKU line</h4><p>Search item details or scan/type a registered CASE / PACK / PIECE barcode.</p></div></div>
+              <div class="form-grid two">
+                <label>SKU search / barcode
+                  <div class="scan-field">
+                    <input id="rcv-sku-search" autocomplete="off" placeholder="Search SKU or scan barcode" />
+                    <button type="button" class="secondary" data-rcv-scan-target="rcv-sku-search" data-rcv-scan-kind="barcode">Scan</button>
+                  </div>
+                </label>
+                <label>Matching active STANDARD SKU *
+                  <select id="rcv-sku-select"><option value="">Load Receiving to view SKU master</option></select>
+                </label>
+              </div>
+
+              <div id="rcv-sku-detail" class="small-note">Select an existing SKU.</div>
+
+              <div class="rcv-line-grid">
+                <label>Container No. *<input id="rcv-container" maxlength="200" autocomplete="off" /></label>
+                <label>Expiry date *<input id="rcv-expiry" type="date" /></label>
+              </div>
+
+              <label>Line remark<input id="rcv-line-remark" maxlength="1000" autocomplete="off" /></label>
+
+              <div class="rcv-qty-grid">
+                <label>CASE qty<input id="rcv-case-qty" type="number" min="0" step="1" inputmode="numeric" value="0" /></label>
+                <label>PACK qty<input id="rcv-pack-qty" type="number" min="0" step="1" inputmode="numeric" value="0" /></label>
+                <label>PIECE qty<input id="rcv-piece-qty" type="number" min="0" step="1" inputmode="numeric" value="0" /></label>
+              </div>
+
+              <div class="button-cluster">
+                <button id="rcv-add-line-btn" type="button" class="secondary">Add line</button>
+                <button id="rcv-clear-line-btn" type="button" class="ghost">Clear line</button>
+              </div>
+            </div>
+
+            <div>
+              <h4>Received lines</h4>
+              <div id="rcv-cart"></div>
+            </div>
+
+            <div class="button-cluster">
+              <button id="rcv-save-receipt-btn" type="submit">Save Receipt</button>
+              <button id="rcv-reset-receipt-btn" type="button" class="ghost">Reset Receipt</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><div><h3>2. Put away received lines</h3><p>Select pending lines and one destination rack. This invokes the existing protected Put-away engine atomically.</p></div></div>
+          <form id="rcv-putaway-form" class="stack">
+            <label>Pending receipt
+              <select id="rcv-pending-receipt"><option value="">No pending receipts</option></select>
+            </label>
+            <div id="rcv-pending-meta" class="small-note"></div>
+            <div id="rcv-pending-lines" class="rcv-pending-lines"></div>
+            <div class="rcv-table-actions">
+              <button id="rcv-select-all-lines" type="button" class="secondary">Select all pending</button>
+              <button id="rcv-clear-line-selection" type="button" class="ghost">Clear selection</button>
+            </div>
+            <label>Destination rack *
+              <div class="scan-field">
+                <input id="rcv-destination-rack" autocomplete="off" placeholder="Scan or enter rack" />
+                <button type="button" class="secondary" data-rcv-scan-target="rcv-destination-rack" data-rcv-scan-kind="location">Scan</button>
+              </div>
+            </label>
+            <button id="rcv-putaway-btn" type="submit">Put-away selected lines</button>
+          </form>
+        </div>
+      </div>
+
+      <div id="rcv-viewer-note" class="card hidden">
+        <div class="info-box">Viewer access is read-only. Use the Receiving Report tab to review inbound records.</div>
+      </div>
+    </div>
+
+    <div id="rcv-tab-report" class="hidden">
+      <div class="card">
+        <div class="card-head">
+          <div><h3>Receiving Report</h3><p>Filter Regular Delivery / Backload records, received SKU lines, and Put-away destinations.</p></div>
+          <div class="button-cluster">
+            <button id="rcv-report-refresh" type="button" class="secondary">Apply filters</button>
+            <button id="rcv-report-reset" type="button" class="ghost">Reset filters</button>
+            <button id="rcv-report-export" type="button" class="secondary">Export filtered CSV</button>
+          </div>
+        </div>
+
+        <div class="form-grid three">
+          <label>Type
+            <select id="rcv-report-type">
+              <option value="">All</option>
+              <option value="REGULAR_DELIVERY">Regular Delivery</option>
+              <option value="BACKLOAD_RETURN">Backload Return</option>
+            </select>
+          </label>
+          <label>Receipt status
+            <select id="rcv-report-status">
+              <option value="">All</option>
+              <option value="RECEIVED">Received</option>
+              <option value="PUTAWAY_PARTIAL">Put-away Partial</option>
+              <option value="PUTAWAY_COMPLETE">Put-away Complete</option>
+            </select>
+          </label>
+          <label>Put-away status
+            <select id="rcv-report-putaway-status">
+              <option value="">All</option>
+              <option value="NOT_PUTAWAY">Not Put-away</option>
+              <option value="PUTAWAY_COMPLETE">Put-away Complete</option>
+            </select>
+          </label>
+          <label>Document search<input id="rcv-report-document" autocomplete="off" placeholder="Type or number" /></label>
+          <label>Customer search<input id="rcv-report-customer" autocomplete="off" /></label>
+          <label>SKU / barcode search<input id="rcv-report-sku" autocomplete="off" /></label>
+          <label>Container search<input id="rcv-report-container" autocomplete="off" /></label>
+          <label>Expiry from<input id="rcv-report-expiry-from" type="date" /></label>
+          <label>Expiry to<input id="rcv-report-expiry-to" type="date" /></label>
+          <label>Receiving user<select id="rcv-report-user"><option value="">All users</option></select></label>
+          <label>Destination rack<input id="rcv-report-rack" autocomplete="off" /></label>
+        </div>
+
+        <div id="rcv-report-summary" class="rcv-report-summary"></div>
+        <div id="rcv-report-table"></div>
+      </div>
+    </div>
+  `;
+
+  const putawayScreen = $('screen-putaway');
+  if (putawayScreen) putawayScreen.insertAdjacentElement('beforebegin', screen);
+  else document.querySelector('main')?.appendChild(screen);
+
+  renderCart();
+  syncType();
+}
+
+function bindEvents() {
+  $('receiving-v1-nav')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    void openReceiving();
+  });
+
+  qsa('#screen-receiving [data-rcv-tab]').forEach((btn) => btn.addEventListener('click', () => setTab(btn.dataset.rcvTab)));
+  qsa('#screen-receiving [data-rcv-scan-target]').forEach((btn) => btn.addEventListener('click', () => void openScanner(btn.dataset.rcvScanTarget, btn.dataset.rcvScanKind || 'barcode')));
+
+  $('rcv-type')?.addEventListener('change', () => { syncType(); void checkBackloadDuplicate(false); });
+  $('rcv-doc-type')?.addEventListener('change', () => void checkBackloadDuplicate(false));
+  $('rcv-doc-number')?.addEventListener('change', () => void checkBackloadDuplicate(false));
+  $('rcv-sku-search')?.addEventListener('input', renderSkuOptions);
+  $('rcv-sku-search')?.addEventListener('change', renderSkuOptions);
+  $('rcv-sku-select')?.addEventListener('change', renderSkuDetail);
+  $('rcv-add-line-btn')?.addEventListener('click', addLine);
+  $('rcv-clear-line-btn')?.addEventListener('click', clearLineForm);
+
+  $('rcv-cart')?.addEventListener('click', (event) => {
+    const btn = event.target.closest('[data-rcv-remove-line]');
+    if (!btn) return;
+    state.cart = state.cart.filter((line) => line.local_id !== btn.dataset.rcvRemoveLine);
+    renderCart();
+  });
+
+  $('rcv-receipt-form')?.addEventListener('submit', submitReceipt);
+  $('rcv-reset-receipt-btn')?.addEventListener('click', resetReceiptForm);
+  $('rcv-pending-receipt')?.addEventListener('change', renderPendingLines);
+  $('rcv-select-all-lines')?.addEventListener('click', () => qsa('#rcv-pending-lines [data-rcv-pending-line]').forEach((node) => { node.checked = true; }));
+  $('rcv-clear-line-selection')?.addEventListener('click', () => qsa('#rcv-pending-lines [data-rcv-pending-line]').forEach((node) => { node.checked = false; }));
+  $('rcv-putaway-form')?.addEventListener('submit', submitPutaway);
+  $('rcv-report-refresh')?.addEventListener('click', () => void loadReport().catch((error) => toast(friendlyError(error), 'error')));
+  $('rcv-report-reset')?.addEventListener('click', resetReportFilters);
+  $('rcv-report-export')?.addEventListener('click', exportReport);
+
+  // The base app does not know this additive screen. Capture the global Refresh
+  // only while Receiving is active, then stop the older handler from refreshing
+  // whichever base screen it last knew about.
+  $('refresh-btn')?.addEventListener('click', (event) => {
+    if (!$('screen-receiving')?.classList.contains('active')) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void loadReceiving(true)
+      .then(() => toast('Receiving refreshed.', 'success'))
+      .catch((error) => toast(friendlyError(error), 'error'));
+  }, true);
+}
+
+function activateReceivingScreen() {
+  qsa('.screen').forEach((screen) => screen.classList.toggle('active', screen.id === 'screen-receiving'));
+  qsa('#main-nav [data-screen]').forEach((button) => button.classList.toggle('active', button.id === 'receiving-v1-nav'));
+  if ($('screen-title')) $('screen-title').textContent = 'Receiving';
+  if ($('screen-subtitle')) $('screen-subtitle').textContent = 'Regular Delivery and Backload Return with controlled Put-away';
+  $('sidebar')?.classList.remove('open');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function syncNavVisibility() {
+  const nav = $('receiving-v1-nav');
+  if (!nav) return;
+  nav.classList.toggle('hidden', !isActiveAccount());
+}
+
+function observeNavVisibility() {
+  const nav = $('receiving-v1-nav');
+  if (!nav || state.navObserver) return;
+  state.navObserver = new MutationObserver(() => {
+    queueMicrotask(syncNavVisibility);
+  });
+  state.navObserver.observe(nav, { attributes: true, attributeFilter: ['class'] });
+}
+
+async function refreshAccess() {
+  if (!supabase) return;
+  const { data: { session } } = await supabase.auth.getSession();
+  state.session = session;
+
+  if (!session) {
+    state.profile = null;
+    syncRoleMode();
+    syncNavVisibility();
+    return;
+  }
+
+  const [profileRes, modeRes] = await Promise.all([
+    supabase.from('profiles').select('id,username,role,is_active').eq('id', session.user.id).single(),
+    supabase.from('app_settings').select('operational_mode').eq('id', 1).single()
+  ]);
+
+  if (profileRes.error) throw profileRes.error;
+  if (modeRes.error) throw modeRes.error;
+  state.profile = profileRes.data;
+  state.mode = modeRes.data?.operational_mode || 'ACTIVE';
+  syncRoleMode();
+  syncNavVisibility();
+}
+
+function syncRoleMode() {
+  const viewer = isViewer();
+  $('rcv-operational-panel')?.classList.toggle('hidden', viewer);
+  $('rcv-viewer-note')?.classList.toggle('hidden', !viewer);
+  const opsTab = document.querySelector('#screen-receiving [data-rcv-tab="ops"]');
+  if (opsTab) opsTab.classList.toggle('hidden', viewer);
+  if (viewer && state.tab === 'ops') setTab('report');
+
+  const writable = isActiveAccount() && !viewer && state.mode === 'ACTIVE';
+  if ($('rcv-add-line-btn')) $('rcv-add-line-btn').disabled = !writable;
+  if ($('rcv-save-receipt-btn')) $('rcv-save-receipt-btn').disabled = !writable || !state.cart.length;
+  if ($('rcv-putaway-btn')) $('rcv-putaway-btn').disabled = !writable;
+}
+
+function setTab(tab) {
+  const target = (tab === 'report' || (isViewer() && tab === 'ops')) ? 'report' : 'ops';
+  state.tab = target;
+  qsa('#screen-receiving [data-rcv-tab]').forEach((btn) => btn.classList.toggle('active', btn.dataset.rcvTab === target));
+  $('rcv-tab-ops')?.classList.toggle('hidden', target !== 'ops');
+  $('rcv-tab-report')?.classList.toggle('hidden', target !== 'report');
+  if (target === 'report' && state.session) void loadReport().catch((error) => toast(friendlyError(error), 'error'));
+}
+
+function syncType() {
+  const backload = $('rcv-type')?.value === 'BACKLOAD_RETURN';
+  $('rcv-backload-fields')?.classList.toggle('hidden', !backload);
+  if ($('rcv-customer')) $('rcv-customer').required = backload;
+  if ($('rcv-return-reason')) $('rcv-return-reason').required = backload;
+  if ($('rcv-doc-type')) $('rcv-doc-type').required = backload;
+  if ($('rcv-doc-number')) $('rcv-doc-number').required = backload;
+  state.backloadDuplicate = false;
+
+  if ($('rcv-duplicate-note')) {
+    $('rcv-duplicate-note').textContent = backload
+      ? 'Backload requires returned document type/number, intended customer, and return reason.'
+      : 'Document fields are optional for Regular Delivery.';
+  }
+}
+
+function skuLabel(sku) {
+  const name = [sku.brand, sku.description, sku.variant, sku.size].filter(Boolean).join(' ');
+  return `${name} · CASE ${sku.case_barcode || 'N/A'} · PACK ${sku.pack_barcode || 'N/A'} · PIECE ${sku.piece_barcode || 'N/A'}`;
+}
+
+function renderSkuOptions() {
+  const select = $('rcv-sku-select');
+  if (!select) return;
+  const term = String($('rcv-sku-search')?.value || '').trim().toLowerCase();
+  const previous = select.value;
+  let rows = state.skus || [];
+
+  if (term) {
+    rows = rows.filter((sku) => [
+      sku.brand, sku.description, sku.variant, sku.size,
+      sku.case_barcode, sku.pack_barcode, sku.piece_barcode
+    ].filter(Boolean).join(' ').toLowerCase().includes(term));
+  }
+
+  rows = rows.slice(0, 250);
+  select.innerHTML = `<option value="">${rows.length ? 'Select matching SKU' : 'No matching active STANDARD SKU'}</option>` +
+    rows.map((sku) => `<option value="${escapeHtml(sku.id)}">${escapeHtml(skuLabel(sku))}</option>`).join('');
+
+  if (rows.some((sku) => sku.id === previous)) select.value = previous;
+  if (term) {
+    const exact = rows.find((sku) => [sku.case_barcode, sku.pack_barcode, sku.piece_barcode]
+      .some((barcode) => String(barcode || '').trim().toLowerCase() === term));
+    if (exact) select.value = exact.id;
+  }
+  renderSkuDetail();
+}
+
+function renderSkuDetail() {
+  const sku = state.skus.find((row) => row.id === $('rcv-sku-select')?.value);
+  const node = $('rcv-sku-detail');
+  if (!node) return;
+
+  node.innerHTML = sku
+    ? `<strong>${escapeHtml([sku.brand, sku.description, sku.variant, sku.size].filter(Boolean).join(' '))}</strong><br>CASE: ${escapeHtml(sku.case_barcode || 'N/A')} · PACK: ${escapeHtml(sku.pack_barcode || 'N/A')} · PIECE: ${escapeHtml(sku.piece_barcode || 'N/A')}`
+    : 'Select an existing active STANDARD SKU.';
+}
+
+function clearLineForm() {
+  if ($('rcv-sku-search')) $('rcv-sku-search').value = '';
+  if ($('rcv-sku-select')) $('rcv-sku-select').value = '';
+  if ($('rcv-container')) $('rcv-container').value = '';
+  if ($('rcv-expiry')) $('rcv-expiry').value = '';
+  if ($('rcv-line-remark')) $('rcv-line-remark').value = '';
+  ['rcv-case-qty', 'rcv-pack-qty', 'rcv-piece-qty'].forEach((id) => { if ($(id)) $(id).value = '0'; });
+  renderSkuOptions();
+}
+
+function addLine() {
+  if (isViewer()) return toast('Viewer access is read-only.', 'error');
+  if (state.mode !== 'ACTIVE') return toast('Administrative Pause is active. Receiving changes are blocked.', 'error');
+
+  const sku = state.skus.find((row) => row.id === $('rcv-sku-select')?.value);
+  if (!sku) return toast('Select an existing active STANDARD SKU.', 'error');
+
+  const container = String($('rcv-container')?.value || '').trim();
+  const expiry = $('rcv-expiry')?.value || '';
+  const lineRemark = String($('rcv-line-remark')?.value || '').trim();
+  const caseQty = Number($('rcv-case-qty')?.value || 0);
+  const packQty = Number($('rcv-pack-qty')?.value || 0);
+  const pieceQty = Number($('rcv-piece-qty')?.value || 0);
+
+  if (!container) return toast('Enter Container No.', 'error');
+  if (!expiry) return toast('Enter the expiry date.', 'error');
+  if (![caseQty, packQty, pieceQty].every((qty) => Number.isInteger(qty) && qty >= 0)) {
+    return toast('CASE, PACK, and PIECE quantities must be whole numbers of zero or more.', 'error');
+  }
+  if (caseQty + packQty + pieceQty <= 0) return toast('Enter at least one received quantity.', 'error');
+
+  const duplicate = state.cart.some((line) =>
+    line.sku_id === sku.id &&
+    String(line.container_no).trim().toLowerCase() === container.toLowerCase() &&
+    line.expiry_date === expiry
+  );
+  if (duplicate) return toast('Combine repeated SKU + Container No. + Expiry into one Receiving line.', 'error');
+
+  state.cart.push({
+    local_id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`,
+    sku_id: sku.id,
+    sku_label: skuLabel(sku),
+    container_no: container,
+    expiry_date: expiry,
+    case_qty: caseQty,
+    pack_qty: packQty,
+    piece_qty: pieceQty,
+    user_remark: lineRemark || null
+  });
+
+  renderCart();
+  clearLineForm();
+}
+
+function qtyText(line) {
+  return [
+    Number(line.case_qty) ? `CASE ${fmtQty(line.case_qty)}` : '',
+    Number(line.pack_qty) ? `PACK ${fmtQty(line.pack_qty)}` : '',
+    Number(line.piece_qty) ? `PIECE ${fmtQty(line.piece_qty)}` : ''
+  ].filter(Boolean).join(' · ');
+}
+
+function renderCart() {
+  const node = $('rcv-cart');
+  if (!node) return;
+
+  if (!state.cart.length) {
+    node.innerHTML = emptyState('No received SKU lines added yet.');
+    syncRoleMode();
+    return;
+  }
+
+  node.innerHTML = `<div class="table-wrap"><table><thead><tr>
+    <th>SKU</th><th>Container</th><th>Expiry</th><th>Quantity</th><th>Remark</th><th></th>
+  </tr></thead><tbody>${state.cart.map((line) => `<tr>
+    <td>${escapeHtml(line.sku_label)}</td>
+    <td>${escapeHtml(line.container_no)}</td>
+    <td>${escapeHtml(fmtDate(line.expiry_date))}</td>
+    <td>${escapeHtml(qtyText(line))}</td>
+    <td>${escapeHtml(line.user_remark || '')}</td>
+    <td><button type="button" class="ghost" data-rcv-remove-line="${escapeHtml(line.local_id)}">Remove</button></td>
+  </tr>`).join('')}</tbody></table></div>`;
+  syncRoleMode();
+}
+
+function resetReceiptForm() {
+  state.cart = [];
+  state.backloadDuplicate = false;
+  $('rcv-receipt-form')?.reset();
+  if ($('rcv-type')) $('rcv-type').value = 'REGULAR_DELIVERY';
+  syncType();
+  clearLineForm();
+  renderCart();
+}
+
+async function checkBackloadDuplicate(showToast = false) {
+  if ($('rcv-type')?.value !== 'BACKLOAD_RETURN') {
+    state.backloadDuplicate = false;
+    return false;
+  }
+
+  const docType = String($('rcv-doc-type')?.value || '').trim();
+  const docNo = String($('rcv-doc-number')?.value || '').trim();
+
+  if (!docType || !docNo) {
+    state.backloadDuplicate = false;
+    if ($('rcv-duplicate-note')) $('rcv-duplicate-note').textContent = 'Enter returned document type and number to check duplicates.';
+    return false;
+  }
+
+  const { data, error } = await supabase.rpc('check_backload_document_duplicate_v1', {
+    p_document_type: docType,
+    p_document_number: docNo
+  });
+
+  if (error) {
+    if (showToast) toast(`Duplicate check failed: ${friendlyError(error)}`, 'error');
+    return false;
+  }
+
+  const duplicate = Boolean(data?.length);
+  state.backloadDuplicate = duplicate;
+  if ($('rcv-duplicate-note')) {
+    $('rcv-duplicate-note').innerHTML = duplicate
+      ? `<span class="rcv-danger">Duplicate returned document found: ${escapeHtml(data[0]?.receipt_no || '')} · ${escapeHtml(data[0]?.status || '')}.</span>`
+      : '<span class="rcv-good">No duplicate returned document found.</span>';
+  }
+  return duplicate;
+}
+
+async function submitReceipt(event) {
+  event.preventDefault();
+  await refreshAccess();
+  if (isViewer()) return toast('Viewer access is read-only.', 'error');
+  if (state.mode !== 'ACTIVE') return toast('Administrative Pause is active. Receiving changes are blocked.', 'error');
+  if (!state.cart.length) return toast('Add at least one received SKU line.', 'error');
+
+  const type = $('rcv-type').value;
+  const docType = $('rcv-doc-type').value.trim();
+  const docNo = $('rcv-doc-number').value.trim();
+  const customer = $('rcv-customer').value.trim();
+  const returnReason = $('rcv-return-reason').value.trim();
+
+  if (type === 'BACKLOAD_RETURN') {
+    if (!docType || !docNo || !customer || !returnReason) {
+      return toast('Backload requires returned document type/number, intended customer, and return reason.', 'error');
+    }
+    if (await checkBackloadDuplicate(true)) {
+      return toast('This returned document was already received. Duplicate Backload was blocked.', 'error');
+    }
+  }
+
+  const confirmation = `${type === 'BACKLOAD_RETURN' ? 'BACKLOAD RETURN' : 'REGULAR DELIVERY'}\n${state.cart.length} received SKU line(s)\n${docType || 'No document type'} ${docNo || ''}\n\nSaving this receipt does NOT change inventory. Inventory changes only during Put-away.\n\nContinue?`;
+  if (!window.confirm(confirmation)) return;
+
+  const button = event.submitter || $('rcv-save-receipt-btn');
+  setBusy(button, true, 'Saving…');
+
+  try {
+    const { data, error } = await supabase.rpc('create_inbound_receipt_v1', {
+      p_receipt_type: type,
+      p_source_name: $('rcv-source').value.trim() || null,
+      p_document_type: docType || null,
+      p_document_number: docNo || null,
+      p_intended_customer_name: customer || null,
+      p_return_reason: returnReason || null,
+      p_remarks: $('rcv-remarks').value.trim() || null,
+      p_lines: state.cart.map((line) => ({
+        sku_id: line.sku_id,
+        container_no: line.container_no,
+        expiry_date: line.expiry_date,
+        case_qty: line.case_qty,
+        pack_qty: line.pack_qty,
+        piece_qty: line.piece_qty,
+        user_remark: line.user_remark
+      }))
+    });
+
+    if (error) return toast(friendlyError(error), 'error');
+
+    const result = data?.[0] || {};
+    toast(`Receiving saved: ${result.receipt_no || 'receipt created'} · ${result.line_count || state.cart.length} line(s). Inventory unchanged until Put-away.`, 'success');
+    resetReceiptForm();
+    await Promise.all([loadPending(), loadReport()]);
+  } finally {
+    setBusy(button, false);
+    syncRoleMode();
+  }
+}
+
+async function loadMasters(force = false) {
+  if (force || !state.skus.length) {
+    const { data, error } = await supabase
+      .from('skus')
+      .select('id,brand,description,variant,size,case_barcode,pack_barcode,piece_barcode,sku_type,is_active')
+      .eq('is_active', true)
+      .eq('sku_type', 'STANDARD')
+      .order('brand')
+      .order('description')
+      .order('variant')
+      .order('size')
+      .limit(10000);
+
+    if (error) throw error;
+    state.skus = data || [];
+    renderSkuOptions();
+  }
+
+  if (force || !state.profiles.length) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id,username,is_active')
+      .eq('is_active', true)
+      .order('username')
+      .limit(10000);
+
+    if (error) throw error;
+    state.profiles = data || [];
+
+    const select = $('rcv-report-user');
+    if (select) {
+      const prior = select.value;
+      select.innerHTML = '<option value="">All users</option>' +
+        state.profiles.map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.username || profile.id)}</option>`).join('');
+      if (state.profiles.some((profile) => profile.id === prior)) select.value = prior;
+    }
+  }
+}
+
+async function loadPending() {
+  const { data, error } = await supabase
+    .from('v_inbound_receiving_report_v1')
+    .select('*')
+    .neq('receipt_status', 'PUTAWAY_COMPLETE')
+    .order('received_at', { ascending: false })
+    .limit(10000);
+
+  if (error) throw error;
+  state.pendingRows = data || [];
+  renderPending();
+}
+
+function pendingGroups() {
+  const groups = new Map();
+
+  for (const row of state.pendingRows || []) {
+    if (row.putaway_status === 'PUTAWAY_COMPLETE') continue;
+
+    if (!groups.has(row.receipt_id)) {
+      groups.set(row.receipt_id, {
+        receipt_id: row.receipt_id,
+        receipt_no: row.receipt_no,
+        receipt_type: row.receipt_type,
+        document_type: row.document_type,
+        document_number: row.document_number,
+        intended_customer_name: row.intended_customer_name,
+        received_at: row.received_at,
+        rows: []
+      });
+    }
+
+    groups.get(row.receipt_id).rows.push(row);
+  }
+
+  return [...groups.values()];
+}
+
+function renderPending() {
+  const select = $('rcv-pending-receipt');
+  if (!select) return;
+
+  const groups = pendingGroups();
+  const current = state.selectedReceiptId || select.value;
+
+  select.innerHTML = groups.length
+    ? '<option value="">Select pending receipt</option>' + groups.map((group) =>
+      `<option value="${escapeHtml(group.receipt_id)}">${escapeHtml(group.receipt_no)} · ${escapeHtml(group.receipt_type === 'BACKLOAD_RETURN' ? 'Backload' : 'Regular')} · ${group.rows.length} pending line(s)</option>`
+    ).join('')
+    : '<option value="">No pending receipts</option>';
+
+  const chosen = groups.some((group) => group.receipt_id === current)
+    ? current
+    : (groups[0]?.receipt_id || '');
+
+  select.value = chosen;
+  state.selectedReceiptId = chosen || null;
+  renderPendingLines();
+}
+
+function renderPendingLines() {
+  const receiptId = $('rcv-pending-receipt')?.value || '';
+  state.selectedReceiptId = receiptId || null;
+  const group = pendingGroups().find((item) => item.receipt_id === receiptId);
+
+  if (!group) {
+    if ($('rcv-pending-meta')) $('rcv-pending-meta').textContent = '';
+    if ($('rcv-pending-lines')) $('rcv-pending-lines').innerHTML = emptyState('No pending Receiving lines.');
+    return;
+  }
+
+  if ($('rcv-pending-meta')) {
+    $('rcv-pending-meta').textContent = [
+      group.receipt_no,
+      group.receipt_type === 'BACKLOAD_RETURN' ? 'Backload Return' : 'Regular Delivery',
+      [group.document_type, group.document_number].filter(Boolean).join(' '),
+      group.intended_customer_name
+    ].filter(Boolean).join(' · ');
+  }
+
+  $('rcv-pending-lines').innerHTML = group.rows.map((row) => `
+    <label>
+      <input type="checkbox" data-rcv-pending-line="${escapeHtml(row.receipt_line_id)}" checked />
+      <span>
+        <strong>${escapeHtml([row.brand, row.description, row.variant, row.size].filter(Boolean).join(' '))}</strong><br>
+        ${escapeHtml(row.container_no)} · ${escapeHtml(fmtDate(row.expiry_date))} · ${escapeHtml(qtyText(row))}
+      </span>
+    </label>
+  `).join('');
+}
+
+async function submitPutaway(event) {
+  event.preventDefault();
+  await refreshAccess();
+
+  if (isViewer()) return toast('Viewer access is read-only.', 'error');
+  if (state.mode !== 'ACTIVE') return toast('Administrative Pause is active. Put-away is blocked.', 'error');
+
+  const receiptId = $('rcv-pending-receipt').value;
+  const rack = normalizeLocation($('rcv-destination-rack').value);
+  const lineIds = qsa('#rcv-pending-lines [data-rcv-pending-line]:checked')
+    .map((node) => node.dataset.rcvPendingLine);
+
+  if (!receiptId) return toast('Select a pending receipt.', 'error');
+  if (!lineIds.length) return toast('Select at least one pending Receiving line.', 'error');
+  if (!rack) return toast('Scan or enter the destination rack.', 'error');
+
+  $('rcv-destination-rack').value = rack;
+  const group = pendingGroups().find((item) => item.receipt_id === receiptId);
+
+  if (!window.confirm(`Put-away ${lineIds.length} received line(s) from ${group?.receipt_no || 'this receipt'} to rack ${rack}?\n\nThis WILL update inventory through the protected Put-away engine.`)) return;
+
+  const button = event.submitter || $('rcv-putaway-btn');
+  setBusy(button, true, 'Putting away…');
+
+  try {
+    const { data, error } = await supabase.rpc('putaway_inbound_receipt_v1', {
+      p_receipt_id: receiptId,
+      p_location_code: rack,
+      p_line_ids: lineIds
+    });
+
+    if (error) return toast(friendlyError(error), 'error');
+
+    const result = data?.[0] || {};
+    const message = `Receiving Put-away completed: ${result.transaction_no || 'transaction saved'} · ${result.receiving_lines_linked || lineIds.length} Receiving line(s) · ${result.receipt_status || ''}.`;
+
+    // The base app maintains its own in-memory Inventory/History caches.
+    // A controlled reload after a stock-changing Receiving Put-away guarantees
+    // those caches cannot display stale pre-Put-away values.
+    sessionStorage.setItem('receiving-v1-reopen-after-putaway', '1');
+    sessionStorage.setItem('receiving-v1-success-message', message);
+    window.location.reload();
+  } finally {
+    setBusy(button, false);
+    syncRoleMode();
+  }
+}
+
+function reportArgs() {
+  return {
+    p_receipt_type: $('rcv-report-type')?.value || null,
+    p_document_search: $('rcv-report-document')?.value.trim() || null,
+    p_customer_search: $('rcv-report-customer')?.value.trim() || null,
+    p_sku_search: $('rcv-report-sku')?.value.trim() || null,
+    p_container_search: $('rcv-report-container')?.value.trim() || null,
+    p_expiry_from: $('rcv-report-expiry-from')?.value || null,
+    p_expiry_to: $('rcv-report-expiry-to')?.value || null,
+    p_status: $('rcv-report-status')?.value || null,
+    p_receiving_user: $('rcv-report-user')?.value || null,
+    p_putaway_status: $('rcv-report-putaway-status')?.value || null,
+    p_destination_rack: $('rcv-report-rack')?.value.trim() || null
+  };
+}
+
+async function loadReport() {
+  if (!state.session || !$('rcv-report-table')) return;
+
+  const { data, error } = await supabase.rpc(
+    'get_inbound_receiving_report_v1',
+    reportArgs()
+  );
+
+  if (error) throw error;
+  state.reportRows = data || [];
+  renderReport();
+}
+
+function renderReport() {
+  const rows = state.reportRows || [];
+  if (!$('rcv-report-summary') || !$('rcv-report-table')) return;
+
+  const receipts = new Set(rows.map((row) => row.receipt_id)).size;
+  const backloads = new Set(
+    rows
+      .filter((row) => row.receipt_type === 'BACKLOAD_RETURN')
+      .map((row) => row.receipt_id)
+  ).size;
+  const pendingLines = rows.filter((row) => row.putaway_status !== 'PUTAWAY_COMPLETE').length;
+
+  $('rcv-report-summary').innerHTML = `
+    <span class="rcv-summary-chip">${receipts} receipt(s)</span>
+    <span class="rcv-summary-chip">${rows.length} line(s)</span>
+    <span class="rcv-summary-chip">${backloads} Backload receipt(s)</span>
+    <span class="rcv-summary-chip">${pendingLines} line(s) pending Put-away</span>
+  `;
+
+  if (!rows.length) {
+    $('rcv-report-table').innerHTML = emptyState('No Receiving records match the current filters.');
+    return;
+  }
+
+  const displayRows = rows.slice(0, 1000);
+
+  $('rcv-report-table').innerHTML = `<div class="table-wrap"><table><thead><tr>
+    <th>Receipt</th><th>Type / Status</th><th>Received</th><th>User</th><th>Document / Customer</th>
+    <th>SKU</th><th>Container / Expiry</th><th>Qty</th><th>Put-away</th><th>Destination / Tx</th>
+  </tr></thead><tbody>${displayRows.map((row) => `<tr>
+    <td><strong>${escapeHtml(row.receipt_no || '')}</strong></td>
+    <td>${escapeHtml(row.receipt_type === 'BACKLOAD_RETURN' ? 'Backload Return' : 'Regular Delivery')}<br><small>${escapeHtml(row.receipt_status || '')}</small></td>
+    <td>${escapeHtml(fmtDateTime(row.received_at))}</td>
+    <td>${escapeHtml(row.received_by_username || '')}</td>
+    <td>${escapeHtml([row.document_type, row.document_number].filter(Boolean).join(' '))}${row.intended_customer_name ? `<br><small>${escapeHtml(row.intended_customer_name)}</small>` : ''}</td>
+    <td>${escapeHtml([row.brand, row.description, row.variant, row.size].filter(Boolean).join(' '))}</td>
+    <td>${escapeHtml(row.container_no || '')}<br><small>${escapeHtml(fmtDate(row.expiry_date))}</small></td>
+    <td>${escapeHtml(qtyText(row))}</td>
+    <td>${escapeHtml(row.putaway_status || '')}</td>
+    <td>${escapeHtml(row.destination_rack || '—')}${row.putaway_transaction_no ? `<br><small>${escapeHtml(row.putaway_transaction_no)}</small>` : ''}</td>
+  </tr>`).join('')}</tbody></table></div>
+  ${rows.length > displayRows.length ? `<div class="small-note">Showing first ${displayRows.length} of ${rows.length} rows. CSV export includes all filtered rows.</div>` : ''}`;
+}
+
+function resetReportFilters() {
+  ['rcv-report-type', 'rcv-report-status', 'rcv-report-putaway-status', 'rcv-report-user']
+    .forEach((id) => { if ($(id)) $(id).value = ''; });
+
+  ['rcv-report-document', 'rcv-report-customer', 'rcv-report-sku', 'rcv-report-container',
+   'rcv-report-expiry-from', 'rcv-report-expiry-to', 'rcv-report-rack']
+    .forEach((id) => { if ($(id)) $(id).value = ''; });
+
+  void loadReport().catch((error) => toast(friendlyError(error), 'error'));
+}
+
+function csvCell(value) {
+  return `"${String(value ?? '').replace(/"/g, '""')}"`;
+}
+
+function exportReport() {
+  const rows = state.reportRows || [];
+  if (!rows.length) return toast('There is no filtered Receiving data to export.', 'error');
+
+  const columns = [
+    ['Receipt No', (row) => row.receipt_no || ''],
+    ['Receiving Type', (row) => row.receipt_type || ''],
+    ['Receipt Status', (row) => row.receipt_status || ''],
+    ['Received At', (row) => row.received_at || ''],
+    ['Receiving User', (row) => row.received_by_username || ''],
+    ['Source / Supplier', (row) => row.source_name || ''],
+    ['Document Type', (row) => row.document_type || ''],
+    ['Document Number', (row) => row.document_number || ''],
+    ['Intended Customer', (row) => row.intended_customer_name || ''],
+    ['Return Reason', (row) => row.return_reason || ''],
+    ['SKU', (row) => [row.brand, row.description, row.variant, row.size].filter(Boolean).join(' ')],
+    ['CASE Barcode', (row) => row.case_barcode || ''],
+    ['PACK Barcode', (row) => row.pack_barcode || ''],
+    ['PIECE Barcode', (row) => row.piece_barcode || ''],
+    ['Container No', (row) => row.container_no || ''],
+    ['Expiry', (row) => row.expiry_date || ''],
+    ['CASE Qty', (row) => row.case_qty || 0],
+    ['PACK Qty', (row) => row.pack_qty || 0],
+    ['PIECE Qty', (row) => row.piece_qty || 0],
+    ['Line Remark', (row) => row.user_remark || ''],
+    ['Put-away Status', (row) => row.putaway_status || ''],
+    ['Destination Rack', (row) => row.destination_rack || ''],
+    ['Put-away Transaction', (row) => row.putaway_transaction_no || ''],
+    ['Put-away At', (row) => row.putaway_at || ''],
+    ['Put-away By', (row) => row.putaway_by_username || '']
+  ];
+
+  const csv = [
+    columns.map(([label]) => csvCell(label)).join(','),
+    ...rows.map((row) => columns.map(([, value]) => csvCell(value(row))).join(','))
+  ].join('\n');
+
+  const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `receiving-v1-filtered-${new Date().toISOString().slice(0, 10)}.csv`;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function loadReceiving(force = false) {
+  await refreshAccess();
+  if (!state.session) throw new Error('Sign in first.');
+  if (!state.profile?.is_active) throw new Error('This account is inactive.');
+
+  syncType();
+  await loadMasters(force);
+  await Promise.all([loadPending(), loadReport()]);
+  syncRoleMode();
+}
+
+async function openReceiving() {
+  try {
+    await refreshAccess();
+    if (!state.session) return toast('Sign in first.', 'error');
+    if (!state.profile?.is_active) return toast('This account is inactive.', 'error');
+
+    activateReceivingScreen();
+    await loadReceiving(false);
+  } catch (error) {
+    toast(friendlyError(error), 'error');
+  }
+}
+
+async function listCameras() {
+  try {
+    const devices = await BrowserCodeReader.listVideoInputDevices();
+    $('rcv-camera-select').innerHTML = devices.map((device, index) =>
+      `<option value="${escapeHtml(device.deviceId)}">${escapeHtml(device.label || `Camera ${index + 1}`)}</option>`
+    ).join('');
+    const rearIndex = devices.findIndex((device) => /back|rear|environment/i.test(device.label));
+    if (rearIndex >= 0) $('rcv-camera-select').selectedIndex = rearIndex;
+  } catch (error) {
+    $('rcv-scanner-status').textContent = `Camera list unavailable: ${friendlyError(error)}`;
+  }
+}
+
+async function openScanner(targetId, kind) {
+  state.scanner.target = targetId;
+  state.scanner.kind = kind;
+  $('rcv-scanner-title').textContent = kind === 'location' ? 'Scan rack QR' : 'Scan barcode';
+  $('rcv-manual-scan-input').value = '';
+  $('rcv-scanner-status').textContent = 'Choose a camera or use the manual / USB scanner field.';
+  $('rcv-scanner-dialog').showModal();
+  await listCameras();
+  await startCamera();
+}
+
+async function startCamera() {
+  stopCamera();
+
+  try {
+    state.scanner.reader = new BrowserMultiFormatReader();
+    const deviceId = $('rcv-camera-select').value || undefined;
+    $('rcv-scanner-status').textContent = 'Scanning…';
+
+    state.scanner.controls = await state.scanner.reader.decodeFromVideoDevice(
+      deviceId,
+      $('rcv-scanner-video'),
+      (result, error) => {
+        if (result) acceptScannedValue(result.getText());
+        else if (error && error.name !== 'NotFoundException') {
+          $('rcv-scanner-status').textContent = friendlyError(error);
+        }
+      }
+    );
+  } catch (error) {
+    $('rcv-scanner-status').textContent =
+      `Camera could not start: ${friendlyError(error)}. Use HTTPS and allow camera permission, or type the code below.`;
+  }
+}
+
+function stopCamera() {
+  try { state.scanner.controls?.stop(); } catch (_) {}
+  state.scanner.controls = null;
+
+  const stream = $('rcv-scanner-video')?.srcObject;
+  if (stream) stream.getTracks().forEach((track) => track.stop());
+  if ($('rcv-scanner-video')) $('rcv-scanner-video').srcObject = null;
+}
+
+function closeScanner() {
+  stopCamera();
+  if ($('rcv-scanner-dialog')?.open) $('rcv-scanner-dialog').close();
+}
+
+function acceptScannedValue(rawValue) {
+  const value = state.scanner.kind === 'location'
+    ? normalizeLocation(rawValue)
+    : String(rawValue || '').trim();
+
+  if (!value) return;
+  const target = $(state.scanner.target);
+  if (!target) return;
+
+  target.value = value;
+  target.dispatchEvent(new Event('input', { bubbles: true }));
+  target.dispatchEvent(new Event('change', { bubbles: true }));
+  closeScanner();
+  toast(`Scanned: ${value}`, 'success');
+}
+
+function subscribeModeAndProfile() {
+  if (!state.session?.user?.id) return;
+
+  if (state.modeChannel) supabase.removeChannel(state.modeChannel);
+  if (state.profileChannel) supabase.removeChannel(state.profileChannel);
+
+  state.modeChannel = supabase
+    .channel('receiving-v1-mode')
+    .on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'app_settings', filter: 'id=eq.1' },
+      (payload) => {
+        state.mode = payload.new?.operational_mode || state.mode;
+        syncRoleMode();
+      }
+    )
+    .subscribe();
+
+  state.profileChannel = supabase
+    .channel('receiving-v1-profile')
+    .on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${state.session.user.id}` },
+      () => {
+        void refreshAccess().catch(() => {});
+      }
+    )
+    .subscribe();
+}
+
+async function handleAuth(session) {
+  state.session = session;
+  if (!session) {
+    state.profile = null;
+    state.cart = [];
+    state.pendingRows = [];
+    state.reportRows = [];
+    syncRoleMode();
+    syncNavVisibility();
+    return;
+  }
+
+  try {
+    await refreshAccess();
+    subscribeModeAndProfile();
+  } catch (_) {}
+}
+
+async function boot() {
+  if (!configReady) {
+    console.error('Receiving V1 Stage 4 refused to load: TEST Supabase identity mismatch.');
+    return;
+  }
+
+  installUi();
+  bindEvents();
+  observeNavVisibility();
+
+  const { data: { session } } = await supabase.auth.getSession();
+  await handleAuth(session);
+
+  supabase.auth.onAuthStateChange((_event, nextSession) => {
+    setTimeout(() => { void handleAuth(nextSession); }, 0);
+  });
+
+  syncNavVisibility();
+
+  const reopen = sessionStorage.getItem('receiving-v1-reopen-after-putaway') === '1';
+  if (reopen) {
+    sessionStorage.removeItem('receiving-v1-reopen-after-putaway');
+    const message = sessionStorage.getItem('receiving-v1-success-message');
+    sessionStorage.removeItem('receiving-v1-success-message');
+
+    setTimeout(() => {
+      void openReceiving().then(() => {
+        if (message) toast(message, 'success');
+      });
+    }, 400);
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => { void boot(); }, { once: true });
+} else {
+  void boot();
+}
