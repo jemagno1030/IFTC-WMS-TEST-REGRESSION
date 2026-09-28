@@ -274,7 +274,7 @@ function installUi() {
               <div class="rcv-line-grid">
                 <label>Container No. *<input id="rcv-container" maxlength="200" autocomplete="off" /></label>
                 <div>
-                  <label>Expiry date *<input id="rcv-expiry" type="date" required /></label>
+                  <label>Expiry date *<input id="rcv-expiry" type="date" /></label>
                   <label class="rcv-no-expiry"><input id="rcv-no-expiry" type="checkbox" /> No expiry (N/A)</label>
                 </div>
               </div>
@@ -683,7 +683,11 @@ function syncReceivingNoExpiry() {
   if (!input) return;
   if (noExpiry) input.value = '';
   input.disabled = noExpiry;
-  input.required = !noExpiry;
+  // Do not use native form-required validation here. This field belongs to
+  // the temporary Add SKU Line editor, while Save Receipt submits the whole
+  // receipt form after the editor is intentionally cleared. addLine() performs
+  // the correct expiry / No expiry validation before a line enters the cart.
+  input.required = false;
 }
 
 function clearLineForm() {
