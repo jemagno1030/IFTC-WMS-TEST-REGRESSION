@@ -123,6 +123,11 @@ function installStyles() {
     #screen-receiving .rcv-pending-lines label{display:flex;gap:8px;align-items:flex-start;margin:8px 0;min-width:0;max-width:100%}
     #screen-receiving .rcv-pending-lines label span{min-width:0;max-width:100%;overflow-wrap:anywhere;word-break:break-word}
     #screen-receiving .rcv-pending-lines input[type="checkbox"]{margin-top:4px;width:auto;flex:0 0 auto}
+    #screen-receiving .rcv-allocation-row{border:1px solid #d7dee7;border-radius:10px;padding:10px;margin:10px 0;min-width:0}
+    #screen-receiving .rcv-allocation-row>label{margin:0 0 8px}
+    #screen-receiving .rcv-allocation-progress{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 10px}
+    #screen-receiving .rcv-progress-chip{border:1px solid #d7dee7;border-radius:999px;padding:4px 8px;background:#fff;font-size:.8rem}
+    #screen-receiving .rcv-allocation-history{display:grid;gap:4px}
     #screen-receiving .rcv-report-summary{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
     #screen-receiving .rcv-summary-chip{border:1px solid #d7dee7;border-radius:999px;padding:5px 10px;background:#fff;font-size:.85rem}
     #screen-receiving .rcv-test-badge{display:inline-block;border-radius:999px;padding:4px 9px;background:#fff3cd;color:#7a4b00;font-weight:800;font-size:.8rem}
@@ -192,7 +197,7 @@ function installUi() {
     <div class="card">
       <div class="card-head">
         <div>
-          <h3>Receiving / Delivery & Backload Return V1 <span class="rcv-test-badge">TEST</span></h3>
+          <h3>Receiving / Delivery & Backload Return V1.1 <span class="rcv-test-badge">TEST</span></h3>
           <p>Record inbound documents first. Inventory changes only when received lines are put away through the protected existing Put-away engine.</p>
         </div>
       </div>
@@ -294,7 +299,7 @@ function installUi() {
         </div>
 
         <div class="card">
-          <div class="card-head"><div><h3>2. Put away received lines</h3><p>Select pending lines and one destination rack. This invokes the existing protected Put-away engine atomically.</p></div></div>
+          <div class="card-head"><div><h3>2. Put away received quantities</h3><p>Allocate some or all remaining CASE / PACK / PIECE quantities to one destination rack. Each allocation invokes the existing protected Put-away engine atomically.</p></div></div>
           <form id="rcv-putaway-form" class="stack">
             <label>Pending receipt
               <select id="rcv-pending-receipt"><option value="">No pending receipts</option></select>
@@ -311,13 +316,13 @@ function installUi() {
                 <button type="button" class="secondary" data-rcv-scan-target="rcv-destination-rack" data-rcv-scan-kind="location">Scan</button>
               </div>
             </label>
-            <button id="rcv-putaway-btn" type="submit">Put-away selected lines</button>
+            <button id="rcv-putaway-btn" type="submit">Put-away allocated quantities</button>
           </form>
         </div>
       </div>
 
       <div id="rcv-viewer-note" class="card hidden">
-        <div class="info-box">Viewer access is read-only. Use the Receiving Report tab to review inbound records.</div>
+        <div class="info-box">Viewer access does not include Receiving.</div>
       </div>
     </div>
 
@@ -352,6 +357,7 @@ function installUi() {
             <select id="rcv-report-putaway-status">
               <option value="">All</option>
               <option value="NOT_PUTAWAY">Not Put-away</option>
+              <option value="PUTAWAY_PARTIAL">Put-away Partial</option>
               <option value="PUTAWAY_COMPLETE">Put-away Complete</option>
             </select>
           </label>
@@ -492,7 +498,7 @@ function activateReceivingScreen({ restoreScroll = false } = {}) {
   qsa('.screen').forEach((screen) => screen.classList.toggle('active', screen.id === 'screen-receiving'));
   qsa('#main-nav [data-screen]').forEach((button) => button.classList.toggle('active', button.id === 'receiving-v1-nav'));
   if ($('screen-title')) $('screen-title').textContent = 'Receiving';
-  if ($('screen-subtitle')) $('screen-subtitle').textContent = 'Regular Delivery and Backload Return with controlled Put-away';
+  if ($('screen-subtitle')) $('screen-subtitle').textContent = 'Regular Delivery and Backload Return with split-quantity controlled Put-away';
   $('sidebar')?.classList.remove('open');
   requestAnimationFrame(() => {
     requestAnimationFrame(() => window.scrollTo({ top: targetScroll, behavior: 'auto' }));
@@ -724,6 +730,43 @@ function qtyText(line) {
   ].filter(Boolean).join(' · ');
 }
 
+function qtyTextByPrefix(line, prefix) {
+  return [
+    Number(line[`${prefix}case_qty`]) ? `CASE ${fmtQty(line[`${prefix}case_qty`])}` : '',
+    Number(line[`${prefix}pack_qty`]) ? `PACK ${fmtQty(line[`${prefix}pack_qty`])}` : '',
+    Number(line[`${prefix}piece_qty`]) ? `PIECE ${fmtQty(line[`${prefix}piece_qty`])}` : ''
+  ].filter(Boolean).join(' · ') || '0';
+}
+
+function allocationHistoryRows(row) {
+  return Array.isArray(row?.allocation_history) ? row.allocation_history : [];
+}
+
+function allocationHistoryHtml(row) {
+  const allocations = allocationHistoryRows(row);
+  if (!allocations.length) return '—';
+  return `<div class="rcv-allocation-history">${allocations.map((allocation) => {
+    const qty = [
+      Number(allocation.case_qty) ? `CASE ${fmtQty(allocation.case_qty)}` : '',
+      Number(allocation.pack_qty) ? `PACK ${fmtQty(allocation.pack_qty)}` : '',
+      Number(allocation.piece_qty) ? `PIECE ${fmtQty(allocation.piece_qty)}` : ''
+    ].filter(Boolean).join(' · ');
+    return `<div><strong>${escapeHtml(allocation.destination_rack || '—')}</strong> · ${escapeHtml(qty || '0')}<br><small>${escapeHtml(allocation.putaway_transaction_no || '')}${allocation.putaway_by_username ? ` · ${escapeHtml(allocation.putaway_by_username)}` : ''}</small></div>`;
+  }).join('')}</div>`;
+}
+
+function allocationHistoryCsv(row) {
+  return allocationHistoryRows(row).map((allocation) => {
+    const qty = [
+      Number(allocation.case_qty) ? `CASE ${fmtQty(allocation.case_qty)}` : '',
+      Number(allocation.pack_qty) ? `PACK ${fmtQty(allocation.pack_qty)}` : '',
+      Number(allocation.piece_qty) ? `PIECE ${fmtQty(allocation.piece_qty)}` : ''
+    ].filter(Boolean).join(' · ');
+    return [allocation.destination_rack || '', qty, allocation.putaway_transaction_no || '', allocation.putaway_by_username || '']
+      .filter(Boolean).join(' | ');
+  }).join(' ; ');
+}
+
 function renderCart() {
   const node = $('rcv-cart');
   if (!node) return;
@@ -896,10 +939,11 @@ async function loadMasters(force = false) {
 
 async function loadPending() {
   const { data, error } = await supabase
-    .from('v_inbound_receiving_report_v1')
+    .from('v_inbound_receiving_progress_v1_1')
     .select('*')
     .neq('receipt_status', 'PUTAWAY_COMPLETE')
     .order('received_at', { ascending: false })
+    .order('line_no')
     .limit(10000);
 
   if (error) throw error;
@@ -961,7 +1005,7 @@ function renderPendingLines() {
 
   if (!group) {
     if ($('rcv-pending-meta')) $('rcv-pending-meta').textContent = '';
-    if ($('rcv-pending-lines')) $('rcv-pending-lines').innerHTML = emptyState('No pending Receiving lines.');
+    if ($('rcv-pending-lines')) $('rcv-pending-lines').innerHTML = emptyState('No pending Receiving quantities.');
     return;
   }
 
@@ -974,56 +1018,143 @@ function renderPendingLines() {
     ].filter(Boolean).join(' · ');
   }
 
-  $('rcv-pending-lines').innerHTML = group.rows.map((row) => `
-    <label>
-      <input type="checkbox" data-rcv-pending-line="${escapeHtml(row.receipt_line_id)}" checked />
-      <span>
-        <strong>${escapeHtml([row.brand, row.description, row.variant, row.size].filter(Boolean).join(' '))}</strong><br>
-        ${escapeHtml(row.container_no)} · ${escapeHtml(fmtDate(row.expiry_date))} · ${escapeHtml(qtyText(row))}
-      </span>
-    </label>
-  `).join('');
+  $('rcv-pending-lines').innerHTML = group.rows.map((row) => {
+    const remainingCase = Number(row.remaining_case_qty || 0);
+    const remainingPack = Number(row.remaining_pack_qty || 0);
+    const remainingPiece = Number(row.remaining_piece_qty || 0);
+
+    return `
+      <div class="rcv-allocation-row" data-rcv-allocation-row="${escapeHtml(row.receipt_line_id)}">
+        <label>
+          <input type="checkbox" data-rcv-pending-line="${escapeHtml(row.receipt_line_id)}" checked />
+          <span>
+            <strong>${escapeHtml([row.brand, row.description, row.variant, row.size].filter(Boolean).join(' '))}</strong><br>
+            ${escapeHtml(row.container_no)} · ${escapeHtml(fmtDate(row.expiry_date))}
+          </span>
+        </label>
+        <div class="rcv-allocation-progress">
+          <span class="rcv-progress-chip"><strong>Received:</strong> ${escapeHtml(qtyText(row))}</span>
+          <span class="rcv-progress-chip"><strong>Put-away:</strong> ${escapeHtml(qtyTextByPrefix(row, 'putaway_'))}</span>
+          <span class="rcv-progress-chip"><strong>Remaining:</strong> ${escapeHtml(qtyTextByPrefix(row, 'remaining_'))}</span>
+          <span class="rcv-progress-chip">${Number(row.allocation_count || 0)} allocation(s)</span>
+        </div>
+        <div class="rcv-qty-grid">
+          <label>CASE to rack
+            <input type="number" min="0" max="${remainingCase}" step="1" inputmode="numeric"
+              data-rcv-allocation-case value="${remainingCase}" ${remainingCase <= 0 ? 'disabled' : ''} />
+          </label>
+          <label>PACK to rack
+            <input type="number" min="0" max="${remainingPack}" step="1" inputmode="numeric"
+              data-rcv-allocation-pack value="${remainingPack}" ${remainingPack <= 0 ? 'disabled' : ''} />
+          </label>
+          <label>PIECE to rack
+            <input type="number" min="0" max="${remainingPiece}" step="1" inputmode="numeric"
+              data-rcv-allocation-piece value="${remainingPiece}" ${remainingPiece <= 0 ? 'disabled' : ''} />
+          </label>
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
 async function submitPutaway(event) {
   event.preventDefault();
   await refreshAccess();
 
-  if (isViewer()) return toast('Viewer access is read-only.', 'error');
+  if (isViewer()) return toast('Viewer access does not include Receiving.', 'error');
   if (state.mode !== 'ACTIVE') return toast('Administrative Pause is active. Put-away is blocked.', 'error');
 
   const receiptId = $('rcv-pending-receipt').value;
   const rack = normalizeLocation($('rcv-destination-rack').value);
-  const lineIds = qsa('#rcv-pending-lines [data-rcv-pending-line]:checked')
-    .map((node) => node.dataset.rcvPendingLine);
+  const checked = qsa('#rcv-pending-lines [data-rcv-pending-line]:checked');
 
   if (!receiptId) return toast('Select a pending receipt.', 'error');
-  if (!lineIds.length) return toast('Select at least one pending Receiving line.', 'error');
+  if (!checked.length) return toast('Select at least one pending Receiving line.', 'error');
   if (!rack) return toast('Scan or enter the destination rack.', 'error');
+
+  const allocations = [];
+  let totalCase = 0;
+  let totalPack = 0;
+  let totalPiece = 0;
+
+  for (const checkbox of checked) {
+    const row = checkbox.closest('[data-rcv-allocation-row]');
+    if (!row) continue;
+
+    const caseInput = row.querySelector('[data-rcv-allocation-case]');
+    const packInput = row.querySelector('[data-rcv-allocation-pack]');
+    const pieceInput = row.querySelector('[data-rcv-allocation-piece]');
+
+    const values = {
+      case_qty: Number(caseInput?.value || 0),
+      pack_qty: Number(packInput?.value || 0),
+      piece_qty: Number(pieceInput?.value || 0)
+    };
+
+    for (const [name, value] of Object.entries(values)) {
+      if (!Number.isSafeInteger(value) || value < 0) {
+        return toast(`${name.replace('_qty','').toUpperCase()} allocation must be a whole number zero or greater.`, 'error');
+      }
+    }
+
+    const maxCase = Number(caseInput?.max || 0);
+    const maxPack = Number(packInput?.max || 0);
+    const maxPiece = Number(pieceInput?.max || 0);
+    if (values.case_qty > maxCase || values.pack_qty > maxPack || values.piece_qty > maxPiece) {
+      return toast('One allocation exceeds the remaining received quantity. Refresh Receiving and try again.', 'error');
+    }
+
+    if (values.case_qty === 0 && values.pack_qty === 0 && values.piece_qty === 0) {
+      return toast('Every selected line must allocate at least one CASE, PACK, or PIECE.', 'error');
+    }
+
+    allocations.push({
+      receipt_line_id: checkbox.dataset.rcvPendingLine,
+      ...values
+    });
+    totalCase += values.case_qty;
+    totalPack += values.pack_qty;
+    totalPiece += values.piece_qty;
+  }
+
+  if (!allocations.length) return toast('No valid Receiving allocations were selected.', 'error');
 
   $('rcv-destination-rack').value = rack;
   const group = pendingGroups().find((item) => item.receipt_id === receiptId);
+  const allocationText = [
+    totalCase ? `CASE ${fmtQty(totalCase)}` : '',
+    totalPack ? `PACK ${fmtQty(totalPack)}` : '',
+    totalPiece ? `PIECE ${fmtQty(totalPiece)}` : ''
+  ].filter(Boolean).join(' · ');
 
-  if (!window.confirm(`Put-away ${lineIds.length} received line(s) from ${group?.receipt_no || 'this receipt'} to rack ${rack}?\n\nThis WILL update inventory through the protected Put-away engine.`)) return;
+  if (!window.confirm(
+    `Put-away ${allocations.length} Receiving line allocation(s) from ${group?.receipt_no || 'this receipt'} to rack ${rack}?\n\n` +
+    `${allocationText}\n\nThis WILL update inventory through the protected Put-away engine.`
+  )) return;
 
   const button = event.submitter || $('rcv-putaway-btn');
   setBusy(button, true, 'Putting away…');
 
   try {
-    const { data, error } = await supabase.rpc('putaway_inbound_receipt_v1', {
+    const { data, error } = await supabase.rpc('putaway_inbound_receipt_v1_1', {
       p_receipt_id: receiptId,
       p_location_code: rack,
-      p_line_ids: lineIds
+      p_allocations: allocations
     });
 
     if (error) return toast(friendlyError(error), 'error');
 
     const result = data?.[0] || {};
-    const message = `Receiving Put-away completed: ${result.transaction_no || 'transaction saved'} · ${result.receiving_lines_linked || lineIds.length} Receiving line(s) · ${result.receipt_status || ''}.`;
+    const savedQty = [
+      Number(result.allocated_case_qty) ? `CASE ${fmtQty(result.allocated_case_qty)}` : '',
+      Number(result.allocated_pack_qty) ? `PACK ${fmtQty(result.allocated_pack_qty)}` : '',
+      Number(result.allocated_piece_qty) ? `PIECE ${fmtQty(result.allocated_piece_qty)}` : ''
+    ].filter(Boolean).join(' · ');
 
-    // The base app maintains its own in-memory Inventory/History caches.
-    // A controlled reload after a stock-changing Receiving Put-away guarantees
-    // those caches cannot display stale pre-Put-away values.
+    const message =
+      `Receiving Put-away completed: ${result.transaction_no || 'transaction saved'} · ` +
+      `${savedQty || 'allocation saved'} · ${result.receipt_status || ''}.`;
+
     sessionStorage.setItem('receiving-v1-reopen-after-putaway', '1');
     sessionStorage.setItem('receiving-v1-success-message', message);
     window.location.reload();
@@ -1053,7 +1184,7 @@ async function loadReport() {
   if (!state.session || !$('rcv-report-table')) return;
 
   const { data, error } = await supabase.rpc(
-    'get_inbound_receiving_report_v1',
+    'get_inbound_receiving_report_v1_1',
     reportArgs()
   );
 
@@ -1068,17 +1199,17 @@ function renderReport() {
 
   const receipts = new Set(rows.map((row) => row.receipt_id)).size;
   const backloads = new Set(
-    rows
-      .filter((row) => row.receipt_type === 'BACKLOAD_RETURN')
-      .map((row) => row.receipt_id)
+    rows.filter((row) => row.receipt_type === 'BACKLOAD_RETURN').map((row) => row.receipt_id)
   ).size;
   const pendingLines = rows.filter((row) => row.putaway_status !== 'PUTAWAY_COMPLETE').length;
+  const allocationCount = rows.reduce((sum, row) => sum + Number(row.allocation_count || 0), 0);
 
   $('rcv-report-summary').innerHTML = `
     <span class="rcv-summary-chip">${receipts} receipt(s)</span>
-    <span class="rcv-summary-chip">${rows.length} line(s)</span>
+    <span class="rcv-summary-chip">${rows.length} received line(s)</span>
+    <span class="rcv-summary-chip">${allocationCount} Put-away allocation(s)</span>
     <span class="rcv-summary-chip">${backloads} Backload receipt(s)</span>
-    <span class="rcv-summary-chip">${pendingLines} line(s) pending Put-away</span>
+    <span class="rcv-summary-chip">${pendingLines} line(s) with remaining qty</span>
   `;
 
   if (!rows.length) {
@@ -1090,7 +1221,7 @@ function renderReport() {
 
   $('rcv-report-table').innerHTML = `<div class="table-wrap"><table><thead><tr>
     <th>Receipt</th><th>Type / Status</th><th>Received</th><th>User</th><th>Document / Customer</th>
-    <th>SKU</th><th>Container / Expiry</th><th>Qty</th><th>Put-away</th><th>Destination / Tx</th>
+    <th>SKU</th><th>Container / Expiry</th><th>Quantity Progress</th><th>Put-away</th><th>Allocation History</th>
   </tr></thead><tbody>${displayRows.map((row) => `<tr>
     <td><strong>${escapeHtml(row.receipt_no || '')}</strong></td>
     <td>${escapeHtml(row.receipt_type === 'BACKLOAD_RETURN' ? 'Backload Return' : 'Regular Delivery')}<br><small>${escapeHtml(row.receipt_status || '')}</small></td>
@@ -1099,9 +1230,13 @@ function renderReport() {
     <td>${escapeHtml([row.document_type, row.document_number].filter(Boolean).join(' '))}${row.intended_customer_name ? `<br><small>${escapeHtml(row.intended_customer_name)}</small>` : ''}</td>
     <td>${escapeHtml([row.brand, row.description, row.variant, row.size].filter(Boolean).join(' '))}</td>
     <td>${escapeHtml(row.container_no || '')}<br><small>${escapeHtml(fmtDate(row.expiry_date))}</small></td>
-    <td>${escapeHtml(qtyText(row))}</td>
-    <td>${escapeHtml(row.putaway_status || '')}</td>
-    <td>${escapeHtml(row.destination_rack || '—')}${row.putaway_transaction_no ? `<br><small>${escapeHtml(row.putaway_transaction_no)}</small>` : ''}</td>
+    <td>
+      <strong>Received:</strong> ${escapeHtml(qtyText(row))}<br>
+      <strong>Put-away:</strong> ${escapeHtml(qtyTextByPrefix(row, 'putaway_'))}<br>
+      <strong>Remaining:</strong> ${escapeHtml(qtyTextByPrefix(row, 'remaining_'))}
+    </td>
+    <td>${escapeHtml(row.putaway_status || '')}<br><small>${Number(row.allocation_count || 0)} allocation(s)</small></td>
+    <td>${allocationHistoryHtml(row)}</td>
   </tr>`).join('')}</tbody></table></div>
   ${rows.length > displayRows.length ? `<div class="small-note">Showing first ${displayRows.length} of ${rows.length} rows. CSV export includes all filtered rows.</div>` : ''}`;
 }
@@ -1142,15 +1277,19 @@ function exportReport() {
     ['PIECE Barcode', (row) => row.piece_barcode || ''],
     ['Container No', (row) => row.container_no || ''],
     ['Expiry', (row) => row.expiry_date || ''],
-    ['CASE Qty', (row) => row.case_qty || 0],
-    ['PACK Qty', (row) => row.pack_qty || 0],
-    ['PIECE Qty', (row) => row.piece_qty || 0],
+    ['Received CASE', (row) => row.case_qty || 0],
+    ['Received PACK', (row) => row.pack_qty || 0],
+    ['Received PIECE', (row) => row.piece_qty || 0],
+    ['Put-away CASE', (row) => row.putaway_case_qty || 0],
+    ['Put-away PACK', (row) => row.putaway_pack_qty || 0],
+    ['Put-away PIECE', (row) => row.putaway_piece_qty || 0],
+    ['Remaining CASE', (row) => row.remaining_case_qty || 0],
+    ['Remaining PACK', (row) => row.remaining_pack_qty || 0],
+    ['Remaining PIECE', (row) => row.remaining_piece_qty || 0],
+    ['Allocation Count', (row) => row.allocation_count || 0],
     ['Line Remark', (row) => row.user_remark || ''],
     ['Put-away Status', (row) => row.putaway_status || ''],
-    ['Destination Rack', (row) => row.destination_rack || ''],
-    ['Put-away Transaction', (row) => row.putaway_transaction_no || ''],
-    ['Put-away At', (row) => row.putaway_at || ''],
-    ['Put-away By', (row) => row.putaway_by_username || '']
+    ['Allocation History', (row) => allocationHistoryCsv(row)]
   ];
 
   const csv = [
@@ -1162,7 +1301,7 @@ function exportReport() {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = `receiving-v1-filtered-${new Date().toISOString().slice(0, 10)}.csv`;
+  anchor.download = `receiving-v1-1-filtered-${new Date().toISOString().slice(0, 10)}.csv`;
   anchor.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
