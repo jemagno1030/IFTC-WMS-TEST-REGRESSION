@@ -437,9 +437,30 @@ function bindEvents() {
 
 function markReceivingActive(active) {
   try {
-    if (active) sessionStorage.setItem('receiving-v1-active', '1');
-    else sessionStorage.removeItem('receiving-v1-active');
+    if (active) {
+      sessionStorage.setItem('receiving-v1-active', '1');
+    } else {
+      sessionStorage.removeItem('receiving-v1-active');
+      sessionStorage.removeItem('receiving-v1-scroll-y');
+    }
   } catch (_) {}
+}
+
+function rememberReceivingScroll() {
+  try {
+    if ($('screen-receiving')?.classList.contains('active')) {
+      sessionStorage.setItem('receiving-v1-scroll-y', String(Math.max(0, Math.round(window.scrollY || 0))));
+    }
+  } catch (_) {}
+}
+
+function savedReceivingScroll() {
+  try {
+    const value = Number(sessionStorage.getItem('receiving-v1-scroll-y') || 0);
+    return Number.isFinite(value) && value >= 0 ? value : 0;
+  } catch (_) {
+    return 0;
+  }
 }
 
 function receivingShouldStayActive() {
@@ -452,14 +473,17 @@ function receivingShouldStayActive() {
   }
 }
 
-function activateReceivingScreen() {
+function activateReceivingScreen({ restoreScroll = false } = {}) {
+  const targetScroll = restoreScroll ? savedReceivingScroll() : 0;
   markReceivingActive(true);
   qsa('.screen').forEach((screen) => screen.classList.toggle('active', screen.id === 'screen-receiving'));
   qsa('#main-nav [data-screen]').forEach((button) => button.classList.toggle('active', button.id === 'receiving-v1-nav'));
   if ($('screen-title')) $('screen-title').textContent = 'Receiving';
   if ($('screen-subtitle')) $('screen-subtitle').textContent = 'Regular Delivery and Backload Return with controlled Put-away';
   $('sidebar')?.classList.remove('open');
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => window.scrollTo({ top: targetScroll, behavior: 'auto' }));
+  });
 }
 
 function scheduleReceivingRestore(delay = 40) {
@@ -467,7 +491,7 @@ function scheduleReceivingRestore(delay = 40) {
   clearTimeout(state.restoreTimer);
   state.restoreTimer = setTimeout(() => {
     if (!receivingShouldStayActive()) return;
-    if (!$('screen-receiving')?.classList.contains('active')) activateReceivingScreen();
+    if (!$('screen-receiving')?.classList.contains('active')) activateReceivingScreen({ restoreScroll: true });
   }, delay);
 }
 
@@ -481,10 +505,23 @@ function observeReceivingScreenState() {
   });
   state.screenObserver.observe(screen, { attributes: true, attributeFilter: ['class'] });
 
+  // Remember Receiving's vertical position while it is the active module.
+  let scrollSaveQueued = false;
+  window.addEventListener('scroll', () => {
+    if (!$('screen-receiving')?.classList.contains('active') || scrollSaveQueued) return;
+    scrollSaveQueued = true;
+    requestAnimationFrame(() => {
+      scrollSaveQueued = false;
+      rememberReceivingScroll();
+    });
+  }, { passive: true });
+  window.addEventListener('blur', rememberReceivingScroll);
+
   // Backup for browsers that refresh auth/session state when a tab/window returns.
   window.addEventListener('focus', () => scheduleReceivingRestore(80));
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) scheduleReceivingRestore(80);
+    if (document.hidden) rememberReceivingScroll();
+    else scheduleReceivingRestore(80);
   });
 }
 
