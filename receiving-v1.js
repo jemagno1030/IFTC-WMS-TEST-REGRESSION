@@ -272,13 +272,13 @@ function installUi() {
                 <label>Expiry date *<input id="rcv-expiry" type="date" /></label>
               </div>
 
-              <label>Line remark<input id="rcv-line-remark" maxlength="1000" autocomplete="off" /></label>
-
               <div class="rcv-qty-grid">
                 <label>CASE qty<input id="rcv-case-qty" type="number" min="0" step="1" inputmode="numeric" value="0" /></label>
                 <label>PACK qty<input id="rcv-pack-qty" type="number" min="0" step="1" inputmode="numeric" value="0" /></label>
                 <label>PIECE qty<input id="rcv-piece-qty" type="number" min="0" step="1" inputmode="numeric" value="0" /></label>
               </div>
+
+              <label>Line remark<input id="rcv-line-remark" maxlength="1000" autocomplete="off" /></label>
 
               <div class="button-cluster">
                 <button id="rcv-add-line-btn" type="button" class="secondary">Add line</button>
