@@ -26,7 +26,9 @@ const supabase = configReady
 const $ = (id) => document.getElementById(id);
 const qsa = (selector, root = document) => [...root.querySelectorAll(selector)];
 const fmtQty = (value) => Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 3 });
-const fmtDate = (value) => value ? new Date(`${String(value).slice(0, 10)}T00:00:00`).toLocaleDateString() : '—';
+const LEGACY_NO_EXPIRY_DATE = '9999-12-31';
+const isNoExpiryDate = (value) => value === null || String(value || '').slice(0, 10) === LEGACY_NO_EXPIRY_DATE;
+const fmtDate = (value) => isNoExpiryDate(value) ? 'N/A' : value ? new Date(`${String(value).slice(0, 10)}T00:00:00`).toLocaleDateString() : '—';
 const fmtDateTime = (value) => value ? new Date(value).toLocaleString() : '—';
 
 const state = {
@@ -128,6 +130,8 @@ function installStyles() {
     #screen-receiving .rcv-allocation-progress{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 10px}
     #screen-receiving .rcv-progress-chip{border:1px solid #d7dee7;border-radius:999px;padding:4px 8px;background:#fff;font-size:.8rem}
     #screen-receiving .rcv-allocation-history{display:grid;gap:4px}
+    #screen-receiving .rcv-no-expiry{display:flex;align-items:center;gap:7px;margin-top:7px;font-size:.9rem}
+    #screen-receiving .rcv-no-expiry input{width:auto;flex:0 0 auto}
     #screen-receiving .rcv-report-summary{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
     #screen-receiving .rcv-summary-chip{border:1px solid #d7dee7;border-radius:999px;padding:5px 10px;background:#fff;font-size:.85rem}
     #screen-receiving .rcv-test-badge{display:inline-block;border-radius:999px;padding:4px 9px;background:#fff3cd;color:#7a4b00;font-weight:800;font-size:.8rem}
@@ -202,7 +206,7 @@ function installUi() {
         </div>
       </div>
       <div class="info-box">
-        Stock identity remains <strong>SKU + Container No. + Expiry + UOM</strong>. Receiving V1 does not add a manufacturer Lot/Batch field.
+        Stock identity remains <strong>SKU + Container No. + Expiry / No Expiry + UOM</strong>. Receiving V1.1 does not add a manufacturer Lot/Batch field.
       </div>
       <div class="rcv-tabs">
         <button type="button" class="secondary rcv-tab-btn active" data-rcv-tab="ops">Receive / Put-away</button>
@@ -269,7 +273,10 @@ function installUi() {
 
               <div class="rcv-line-grid">
                 <label>Container No. *<input id="rcv-container" maxlength="200" autocomplete="off" /></label>
-                <label>Expiry date *<input id="rcv-expiry" type="date" /></label>
+                <div>
+                  <label>Expiry date *<input id="rcv-expiry" type="date" required /></label>
+                  <label class="rcv-no-expiry"><input id="rcv-no-expiry" type="checkbox" /> No expiry (N/A)</label>
+                </div>
               </div>
 
               <div class="rcv-qty-grid">
@@ -383,6 +390,7 @@ function installUi() {
 
   renderCart();
   syncType();
+  syncReceivingNoExpiry();
 }
 
 function bindEvents() {
@@ -395,6 +403,7 @@ function bindEvents() {
   qsa('#screen-receiving [data-rcv-scan-target]').forEach((btn) => btn.addEventListener('click', () => void openScanner(btn.dataset.rcvScanTarget, btn.dataset.rcvScanKind || 'barcode')));
 
   $('rcv-type')?.addEventListener('change', () => { syncType(); void checkBackloadDuplicate(false); });
+  $('rcv-no-expiry')?.addEventListener('change', syncReceivingNoExpiry);
   $('rcv-doc-type')?.addEventListener('change', () => void checkBackloadDuplicate(false));
   $('rcv-doc-number')?.addEventListener('change', () => void checkBackloadDuplicate(false));
   $('rcv-sku-search')?.addEventListener('input', renderSkuOptions);
@@ -668,11 +677,22 @@ function renderSkuDetail() {
   syncRoleMode();
 }
 
+function syncReceivingNoExpiry() {
+  const noExpiry = Boolean($('rcv-no-expiry')?.checked);
+  const input = $('rcv-expiry');
+  if (!input) return;
+  if (noExpiry) input.value = '';
+  input.disabled = noExpiry;
+  input.required = !noExpiry;
+}
+
 function clearLineForm() {
   if ($('rcv-sku-search')) $('rcv-sku-search').value = '';
   if ($('rcv-sku-select')) $('rcv-sku-select').value = '';
   if ($('rcv-container')) $('rcv-container').value = '';
   if ($('rcv-expiry')) $('rcv-expiry').value = '';
+  if ($('rcv-no-expiry')) $('rcv-no-expiry').checked = false;
+  syncReceivingNoExpiry();
   if ($('rcv-line-remark')) $('rcv-line-remark').value = '';
   ['rcv-case-qty', 'rcv-pack-qty', 'rcv-piece-qty'].forEach((id) => { if ($(id)) $(id).value = '0'; });
   renderSkuOptions();
@@ -686,14 +706,15 @@ function addLine() {
   if (!sku) return toast('Select an existing active STANDARD SKU.', 'error');
 
   const container = String($('rcv-container')?.value || '').trim();
-  const expiry = $('rcv-expiry')?.value || '';
+  const noExpiry = Boolean($('rcv-no-expiry')?.checked);
+  const expiry = noExpiry ? null : ($('rcv-expiry')?.value || null);
   const lineRemark = String($('rcv-line-remark')?.value || '').trim();
   const caseQty = Number($('rcv-case-qty')?.value || 0);
   const packQty = Number($('rcv-pack-qty')?.value || 0);
   const pieceQty = Number($('rcv-piece-qty')?.value || 0);
 
   if (!container) return toast('Enter Container No.', 'error');
-  if (!expiry) return toast('Enter the expiry date.', 'error');
+  if (!noExpiry && !expiry) return toast('Enter the expiry date, or select No expiry (N/A).', 'error');
   if (![caseQty, packQty, pieceQty].every((qty) => Number.isInteger(qty) && qty >= 0)) {
     return toast('CASE, PACK, and PIECE quantities must be whole numbers of zero or more.', 'error');
   }
@@ -1276,7 +1297,7 @@ function exportReport() {
     ['PACK Barcode', (row) => row.pack_barcode || ''],
     ['PIECE Barcode', (row) => row.piece_barcode || ''],
     ['Container No', (row) => row.container_no || ''],
-    ['Expiry', (row) => row.expiry_date || ''],
+    ['Expiry', (row) => isNoExpiryDate(row.expiry_date) ? 'N/A' : (row.expiry_date || '')],
     ['Received CASE', (row) => row.case_qty || 0],
     ['Received PACK', (row) => row.pack_qty || 0],
     ['Received PIECE', (row) => row.piece_qty || 0],
