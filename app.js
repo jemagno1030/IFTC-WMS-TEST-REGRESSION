@@ -1064,6 +1064,7 @@ function setupStaticEvents() {
   $('edit-close').addEventListener('click', () => $('edit-dialog').close());
   $('edit-transaction-form').addEventListener('submit', submitSupervisorEdit);
   $('inventory-adjust-close').addEventListener('click', () => $('inventory-adjust-dialog').close());
+  $('inventory-adjust-no-expiry')?.addEventListener('change', syncInventoryAdjustNoExpiry);
   $('inventory-adjust-form').addEventListener('submit', submitInventoryLotEdit);
   $('inventory-remarks-close').addEventListener('click', () => $('inventory-remarks-dialog').close());
   $('inventory-remarks-form').addEventListener('submit', submitInventoryRemarksEdit);
@@ -7772,6 +7773,16 @@ async function toggleInventoryLotHold(lotId, shouldHold) {
   toast(result?.is_on_hold ? 'Inventory lot placed ON HOLD. Release is now blocked.' : 'Inventory lot hold released. Normal eligibility restored.', 'success');
 }
 
+function syncInventoryAdjustNoExpiry() {
+  const checkbox = $('inventory-adjust-no-expiry');
+  const input = $('inventory-adjust-expiry');
+  if (!input || !checkbox) return;
+  const noExpiry = Boolean(checkbox.checked);
+  if (noExpiry) input.value = '';
+  input.disabled = noExpiry || checkbox.disabled;
+  input.required = false;
+}
+
 async function openInventoryLotEdit(lotId) {
   if (!isSupervisor()) return toast('Supervisor, Admin, or Owner access is required.', 'error');
   const row = state.data.inventory.find((r) => r.lot_id === lotId);
@@ -7805,6 +7816,7 @@ async function openInventoryLotEdit(lotId) {
 
   $('inventory-adjust-container').value = row.container_no || '';
   $('inventory-adjust-expiry').value = row.expiry_date || '';
+  if ($('inventory-adjust-no-expiry')) $('inventory-adjust-no-expiry').checked = isNoExpiryDate(row.expiry_date);
   $('inventory-adjust-uom').value = row.uom || 'PIECE';
   $('inventory-adjust-qty').value = Number(row.qty);
   $('inventory-adjust-reason').value = '';
@@ -7818,7 +7830,9 @@ async function openInventoryLotEdit(lotId) {
   $('inventory-adjust-sku').disabled = false;
   $('inventory-adjust-location').disabled = false;
   $('inventory-adjust-container').disabled = false;
+  if ($('inventory-adjust-no-expiry')) $('inventory-adjust-no-expiry').disabled = false;
   $('inventory-adjust-expiry').disabled = false;
+  syncInventoryAdjustNoExpiry();
   $('inventory-adjust-uom').disabled = false;
   $('inventory-adjust-qty').disabled = false;
   $('inventory-adjust-qty').min = '1';
@@ -7859,6 +7873,7 @@ async function openInventoryLotEdit(lotId) {
       $('inventory-adjust-uom').value = 'CASE';
       $('inventory-adjust-qty').value = 1;
       $('inventory-adjust-qty').disabled = true;
+      if ($('inventory-adjust-no-expiry')) $('inventory-adjust-no-expiry').disabled = true;
       $('inventory-adjust-expiry').disabled = true;
       $('inventory-adjust-expiry').title = 'Complete Shipper expiry is automatically calculated from the earliest remaining content expiry.';
     } else {
@@ -7890,6 +7905,10 @@ async function submitInventoryLotEdit(event) {
   const reason = $('inventory-adjust-reason').value.trim();
   if (!reason) return toast('Enter the reason for this inventory adjustment.', 'error');
 
+  const adjustedExpiry = $('inventory-adjust-no-expiry')?.checked
+    ? null
+    : ($('inventory-adjust-expiry').value || null);
+
   const button = event.submitter;
   setBusy(button, true, 'Saving…');
 
@@ -7900,7 +7919,7 @@ async function submitInventoryLotEdit(event) {
       p_sku_id: $('inventory-adjust-sku').value,
       p_location_code: normalizeLocation($('inventory-adjust-location').value),
       p_container_no: $('inventory-adjust-container').value.trim(),
-      p_expiry_date: $('inventory-adjust-expiry').value || row.expiry_date,
+      p_expiry_date: shipperRole === 'HEADER' ? row.expiry_date : adjustedExpiry,
       p_qty: qty,
       p_putaway_note: $('inventory-adjust-putaway-note').value.trim() || null,
       p_reason: reason
@@ -7911,7 +7930,7 @@ async function submitInventoryLotEdit(event) {
       p_sku_id: $('inventory-adjust-sku').value,
       p_location_code: normalizeLocation($('inventory-adjust-location').value),
       p_container_no: $('inventory-adjust-container').value.trim(),
-      p_expiry_date: $('inventory-adjust-expiry').value,
+      p_expiry_date: adjustedExpiry,
       p_uom: $('inventory-adjust-uom').value,
       p_qty: qty,
       p_reason: reason
