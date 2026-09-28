@@ -108,7 +108,7 @@ function installStyles() {
   style.textContent = `
     #screen-receiving .rcv-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
     #screen-receiving .rcv-tab-btn.active{font-weight:800;box-shadow:inset 0 0 0 2px currentColor}
-    #screen-receiving .rcv-grid{display:grid;grid-template-columns:minmax(0,1.18fr) minmax(320px,.82fr);gap:14px;align-items:start}
+    #screen-receiving .rcv-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start}
     #screen-receiving .rcv-grid>*{min-width:0}
     #screen-receiving .rcv-grid .card{min-width:0;max-width:100%}
     #screen-receiving .form-grid>* ,#screen-receiving .rcv-line-grid>* ,#screen-receiving .rcv-qty-grid>*{min-width:0}
