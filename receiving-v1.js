@@ -127,6 +127,8 @@ function installStyles() {
     #screen-receiving .rcv-summary-chip{border:1px solid #d7dee7;border-radius:999px;padding:5px 10px;background:#fff;font-size:.85rem}
     #screen-receiving .rcv-test-badge{display:inline-block;border-radius:999px;padding:4px 9px;background:#fff3cd;color:#7a4b00;font-weight:800;font-size:.8rem}
     #screen-receiving .rcv-warning{color:#8a4b00;font-weight:700}
+    body.receiving-v1-pinned #screen-receiving{display:block!important}
+    body.receiving-v1-pinned #app-view .screen:not(#screen-receiving){display:none!important}
     @media(max-width:900px){#screen-receiving .rcv-grid,#screen-receiving .rcv-line-grid{grid-template-columns:1fr}}
     @media(max-width:620px){#screen-receiving .rcv-qty-grid{grid-template-columns:1fr}}
   `;
@@ -438,8 +440,13 @@ function bindEvents() {
 
 function markReceivingActive(active) {
   try {
-    if (active) sessionStorage.setItem('receiving-v1-active', '1');
-    else sessionStorage.removeItem('receiving-v1-active');
+    if (active) {
+      sessionStorage.setItem('receiving-v1-active', '1');
+      document.body?.classList.add('receiving-v1-pinned');
+    } else {
+      sessionStorage.removeItem('receiving-v1-active');
+      document.body?.classList.remove('receiving-v1-pinned');
+    }
   } catch (_) {}
 }
 
@@ -447,6 +454,7 @@ function clearReceivingPersistence() {
   try {
     sessionStorage.removeItem('receiving-v1-active');
     sessionStorage.removeItem('receiving-v1-scroll-y');
+    document.body?.classList.remove('receiving-v1-pinned');
   } catch (_) {}
 }
 
@@ -1318,6 +1326,14 @@ async function boot() {
   bindEvents();
   observeNavVisibility();
   observeReceivingScreenState();
+
+  // If Receiving was already the intended active module, pin it visually
+  // before auth/session refreshes can flash the base app's last native screen.
+  try {
+    if (sessionStorage.getItem('receiving-v1-active') === '1') {
+      document.body?.classList.add('receiving-v1-pinned');
+    }
+  } catch (_) {}
 
   const { data: { session } } = await supabase.auth.getSession();
   await handleAuth(session);
