@@ -479,7 +479,8 @@ function receivingShouldStayActive() {
   try {
     return sessionStorage.getItem('receiving-v1-active') === '1'
       && Boolean(state.session)
-      && Boolean(state.profile?.is_active);
+      && Boolean(state.profile?.is_active)
+      && !isViewer();
   } catch (_) {
     return false;
   }
@@ -540,7 +541,7 @@ function observeReceivingScreenState() {
 function syncNavVisibility() {
   const nav = $('receiving-v1-nav');
   if (!nav) return;
-  nav.classList.toggle('hidden', !isActiveAccount());
+  nav.classList.toggle('hidden', !isActiveAccount() || isViewer());
 }
 
 function observeNavVisibility() {
@@ -579,11 +580,13 @@ async function refreshAccess() {
 
 function syncRoleMode() {
   const viewer = isViewer();
-  $('rcv-operational-panel')?.classList.toggle('hidden', viewer);
-  $('rcv-viewer-note')?.classList.toggle('hidden', !viewer);
-  const opsTab = document.querySelector('#screen-receiving [data-rcv-tab="ops"]');
-  if (opsTab) opsTab.classList.toggle('hidden', viewer);
-  if (viewer && state.tab === 'ops') setTab('report');
+
+  if (viewer) {
+    clearReceivingPersistence();
+    if ($('screen-receiving')?.classList.contains('active')) {
+      document.querySelector('#main-nav [data-screen="dashboard"]')?.click();
+    }
+  }
 
   const writable = isActiveAccount() && !viewer && state.mode === 'ACTIVE';
   if ($('rcv-add-line-btn')) $('rcv-add-line-btn').disabled = !writable;
@@ -1168,6 +1171,7 @@ async function loadReceiving(force = false) {
   await refreshAccess();
   if (!state.session) throw new Error('Sign in first.');
   if (!state.profile?.is_active) throw new Error('This account is inactive.');
+  if (isViewer()) throw new Error('Viewer access does not include Receiving.');
 
   syncType();
   await loadMasters(force);
@@ -1180,6 +1184,10 @@ async function openReceiving({ restoreScroll = false } = {}) {
     await refreshAccess();
     if (!state.session) return toast('Sign in first.', 'error');
     if (!state.profile?.is_active) return toast('This account is inactive.', 'error');
+    if (isViewer()) {
+      clearReceivingPersistence();
+      return toast('Viewer access does not include Receiving.', 'error');
+    }
 
     activateReceivingScreen({ restoreScroll });
     await loadReceiving(false);
