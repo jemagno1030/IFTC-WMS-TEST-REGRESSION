@@ -806,6 +806,7 @@ async function submitUomConversion(event) {
 }
 
 function setupStaticEvents() {
+  ensureInventoryAdjustNoExpiryUi();
   installSkuMasterBarcodeLessFilterUi();
   installSkuMasterCreateUi();
   installUomConversionUi();
@@ -7773,6 +7774,41 @@ async function toggleInventoryLotHold(lotId, shouldHold) {
   toast(result?.is_on_hold ? 'Inventory lot placed ON HOLD. Release is now blocked.' : 'Inventory lot hold released. Normal eligibility restored.', 'success');
 }
 
+function ensureInventoryAdjustNoExpiryUi() {
+  const input = $('inventory-adjust-expiry');
+  if (!input) return;
+
+  // Older cached/deployed index.html versions marked this editor field required
+  // and had no true no-expiry control. Repair the dialog at runtime so the
+  // JavaScript remains compatible while GitHub Pages catches up.
+  input.required = false;
+  input.removeAttribute('required');
+
+  let checkbox = $('inventory-adjust-no-expiry');
+  if (!checkbox) {
+    checkbox = document.createElement('input');
+    checkbox.id = 'inventory-adjust-no-expiry';
+    checkbox.type = 'checkbox';
+    checkbox.style.width = 'auto';
+
+    const row = document.createElement('span');
+    row.className = 'small-note';
+    row.style.display = 'flex';
+    row.style.alignItems = 'center';
+    row.style.gap = '7px';
+    row.style.marginTop = '7px';
+    row.append(checkbox, document.createTextNode(' No expiry (N/A)'));
+
+    const host = input.closest('label') || input.parentElement;
+    host?.appendChild(row);
+  }
+
+  if (!checkbox.dataset.noExpiryBound) {
+    checkbox.addEventListener('change', syncInventoryAdjustNoExpiry);
+    checkbox.dataset.noExpiryBound = 'true';
+  }
+}
+
 function syncInventoryAdjustNoExpiry() {
   const checkbox = $('inventory-adjust-no-expiry');
   const input = $('inventory-adjust-expiry');
@@ -7784,6 +7820,7 @@ function syncInventoryAdjustNoExpiry() {
 }
 
 async function openInventoryLotEdit(lotId) {
+  ensureInventoryAdjustNoExpiryUi();
   if (!isSupervisor()) return toast('Supervisor, Admin, or Owner access is required.', 'error');
   const row = state.data.inventory.find((r) => r.lot_id === lotId);
   if (!row) return toast('Inventory lot is no longer available. Refresh Inventory and try again.', 'error');
