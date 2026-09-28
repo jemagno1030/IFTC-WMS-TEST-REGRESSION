@@ -44,6 +44,8 @@ const state = {
   modeChannel: null,
   profileChannel: null,
   navObserver: null,
+  screenObserver: null,
+  restoreTimer: null,
   scanner: { target: null, kind: null, reader: null, controls: null }
 };
 
@@ -404,6 +406,16 @@ function bindEvents() {
   $('rcv-report-reset')?.addEventListener('click', resetReportFilters);
   $('rcv-report-export')?.addEventListener('click', exportReport);
 
+  // Receiving V1 is additive and the base app does not know it as a native screen.
+  // Clear the Receiving-active marker only when the user explicitly navigates to
+  // another WMS module. This lets auth/token refreshes restore Receiving without
+  // fighting intentional navigation.
+  document.addEventListener('click', (event) => {
+    const target = event.target.closest('#main-nav [data-screen], [data-jump]');
+    if (!target || target.id === 'receiving-v1-nav') return;
+    markReceivingActive(false);
+  }, true);
+
   // The base app does not know this additive screen. Capture the global Refresh
   // only while Receiving is active, then stop the older handler from refreshing
   // whichever base screen it last knew about.
@@ -417,13 +429,57 @@ function bindEvents() {
   }, true);
 }
 
+function markReceivingActive(active) {
+  try {
+    if (active) sessionStorage.setItem('receiving-v1-active', '1');
+    else sessionStorage.removeItem('receiving-v1-active');
+  } catch (_) {}
+}
+
+function receivingShouldStayActive() {
+  try {
+    return sessionStorage.getItem('receiving-v1-active') === '1'
+      && Boolean(state.session)
+      && Boolean(state.profile?.is_active);
+  } catch (_) {
+    return false;
+  }
+}
+
 function activateReceivingScreen() {
+  markReceivingActive(true);
   qsa('.screen').forEach((screen) => screen.classList.toggle('active', screen.id === 'screen-receiving'));
   qsa('#main-nav [data-screen]').forEach((button) => button.classList.toggle('active', button.id === 'receiving-v1-nav'));
   if ($('screen-title')) $('screen-title').textContent = 'Receiving';
   if ($('screen-subtitle')) $('screen-subtitle').textContent = 'Regular Delivery and Backload Return with controlled Put-away';
   $('sidebar')?.classList.remove('open');
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function scheduleReceivingRestore(delay = 40) {
+  if (!receivingShouldStayActive()) return;
+  clearTimeout(state.restoreTimer);
+  state.restoreTimer = setTimeout(() => {
+    if (!receivingShouldStayActive()) return;
+    if (!$('screen-receiving')?.classList.contains('active')) activateReceivingScreen();
+  }, delay);
+}
+
+function observeReceivingScreenState() {
+  const screen = $('screen-receiving');
+  if (!screen || state.screenObserver) return;
+  state.screenObserver = new MutationObserver(() => {
+    if (receivingShouldStayActive() && !screen.classList.contains('active')) {
+      scheduleReceivingRestore(40);
+    }
+  });
+  state.screenObserver.observe(screen, { attributes: true, attributeFilter: ['class'] });
+
+  // Backup for browsers that refresh auth/session state when a tab/window returns.
+  window.addEventListener('focus', () => scheduleReceivingRestore(80));
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) scheduleReceivingRestore(80);
+  });
 }
 
 function syncNavVisibility() {
@@ -1184,6 +1240,7 @@ function subscribeModeAndProfile() {
 async function handleAuth(session) {
   state.session = session;
   if (!session) {
+    markReceivingActive(false);
     state.profile = null;
     state.cart = [];
     state.pendingRows = [];
@@ -1196,6 +1253,7 @@ async function handleAuth(session) {
   try {
     await refreshAccess();
     subscribeModeAndProfile();
+    scheduleReceivingRestore(120);
   } catch (_) {}
 }
 
@@ -1208,6 +1266,7 @@ async function boot() {
   installUi();
   bindEvents();
   observeNavVisibility();
+  observeReceivingScreenState();
 
   const { data: { session } } = await supabase.auth.getSession();
   await handleAuth(session);
@@ -1217,6 +1276,12 @@ async function boot() {
   });
 
   syncNavVisibility();
+
+  // If Receiving was the active screen before a normal page reload or a browser
+  // auth/session refresh, restore it just like a native WMS module.
+  if (receivingShouldStayActive()) {
+    setTimeout(() => { void openReceiving(); }, 250);
+  }
 
   const reopen = sessionStorage.getItem('receiving-v1-reopen-after-putaway') === '1';
   if (reopen) {
