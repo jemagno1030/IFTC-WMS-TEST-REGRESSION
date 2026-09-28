@@ -109,14 +109,20 @@ function installStyles() {
     #screen-receiving .rcv-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
     #screen-receiving .rcv-tab-btn.active{font-weight:800;box-shadow:inset 0 0 0 2px currentColor}
     #screen-receiving .rcv-grid{display:grid;grid-template-columns:minmax(0,1.18fr) minmax(320px,.82fr);gap:14px;align-items:start}
-    #screen-receiving .rcv-line-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    #screen-receiving .rcv-grid>*{min-width:0}
+    #screen-receiving .rcv-grid .card{min-width:0;max-width:100%}
+    #screen-receiving .form-grid>* ,#screen-receiving .rcv-line-grid>* ,#screen-receiving .rcv-qty-grid>*{min-width:0}
+    #screen-receiving input,#screen-receiving select,#screen-receiving textarea,#screen-receiving .scan-field{min-width:0;max-width:100%}
+    #screen-receiving .rcv-line-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
     #screen-receiving .rcv-qty-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
     #screen-receiving .rcv-table-actions{display:flex;gap:8px;flex-wrap:wrap}
     #screen-receiving .rcv-status-note{margin-top:8px}
     #screen-receiving .rcv-danger{color:#9f1239;font-weight:700}
     #screen-receiving .rcv-good{color:#166534;font-weight:700}
-    #screen-receiving .rcv-pending-lines label{display:flex;gap:8px;align-items:flex-start;margin:8px 0}
-    #screen-receiving .rcv-pending-lines input[type="checkbox"]{margin-top:4px;width:auto}
+    #screen-receiving .rcv-pending-lines{min-width:0;max-width:100%;overflow:hidden}
+    #screen-receiving .rcv-pending-lines label{display:flex;gap:8px;align-items:flex-start;margin:8px 0;min-width:0;max-width:100%}
+    #screen-receiving .rcv-pending-lines label span{min-width:0;max-width:100%;overflow-wrap:anywhere;word-break:break-word}
+    #screen-receiving .rcv-pending-lines input[type="checkbox"]{margin-top:4px;width:auto;flex:0 0 auto}
     #screen-receiving .rcv-report-summary{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
     #screen-receiving .rcv-summary-chip{border:1px solid #d7dee7;border-radius:999px;padding:5px 10px;background:#fff;font-size:.85rem}
     #screen-receiving .rcv-test-badge{display:inline-block;border-radius:999px;padding:4px 9px;background:#fff3cd;color:#7a4b00;font-weight:800;font-size:.8rem}
@@ -385,7 +391,7 @@ function bindEvents() {
   $('rcv-doc-number')?.addEventListener('change', () => void checkBackloadDuplicate(false));
   $('rcv-sku-search')?.addEventListener('input', renderSkuOptions);
   $('rcv-sku-search')?.addEventListener('change', renderSkuOptions);
-  $('rcv-sku-select')?.addEventListener('change', renderSkuDetail);
+  $('rcv-sku-select')?.addEventListener('change', () => { renderSkuDetail(); syncRoleMode(); });
   $('rcv-add-line-btn')?.addEventListener('click', addLine);
   $('rcv-clear-line-btn')?.addEventListener('click', clearLineForm);
 
@@ -532,7 +538,7 @@ function syncRoleMode() {
 
   const writable = isActiveAccount() && !viewer && state.mode === 'ACTIVE';
   if ($('rcv-add-line-btn')) $('rcv-add-line-btn').disabled = !writable;
-  if ($('rcv-save-receipt-btn')) $('rcv-save-receipt-btn').disabled = !writable || !state.cart.length;
+  if ($('rcv-save-receipt-btn')) $('rcv-save-receipt-btn').disabled = !writable || !state.cart.length || Boolean($('rcv-sku-select')?.value);
   if ($('rcv-putaway-btn')) $('rcv-putaway-btn').disabled = !writable;
 }
 
@@ -601,6 +607,7 @@ function renderSkuDetail() {
   node.innerHTML = sku
     ? `<strong>${escapeHtml([sku.brand, sku.description, sku.variant, sku.size].filter(Boolean).join(' '))}</strong><br>CASE: ${escapeHtml(sku.case_barcode || 'N/A')} · PACK: ${escapeHtml(sku.pack_barcode || 'N/A')} · PIECE: ${escapeHtml(sku.piece_barcode || 'N/A')}`
     : 'Select an existing active STANDARD SKU.';
+  syncRoleMode();
 }
 
 function clearLineForm() {
@@ -739,6 +746,9 @@ async function submitReceipt(event) {
   if (isViewer()) return toast('Viewer access is read-only.', 'error');
   if (state.mode !== 'ACTIVE') return toast('Administrative Pause is active. Receiving changes are blocked.', 'error');
   if (!state.cart.length) return toast('Add at least one received SKU line.', 'error');
+  if ($('rcv-sku-select')?.value) {
+    return toast('Finish adding or clear the currently selected SKU line before saving the receipt.', 'error');
+  }
 
   const type = $('rcv-type').value;
   const docType = $('rcv-doc-type').value.trim();
