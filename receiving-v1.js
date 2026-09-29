@@ -523,6 +523,13 @@ function bindEvents() {
       if (row) openReceivingReportEdit(row);
       return;
     }
+    const deleteReceiptButton = event.target.closest('[data-rcv-report-delete-receipt]');
+    if (deleteReceiptButton) {
+      const row = state.reportRows.find((item) => item.receipt_id === deleteReceiptButton.dataset.rcvReportDeleteReceipt);
+      if (row) void deleteReceivingReceipt(row);
+      return;
+    }
+
     const deleteButton = event.target.closest('[data-rcv-report-delete]');
     if (deleteButton) {
       const row = state.reportRows.find((item) => item.receipt_line_id === deleteButton.dataset.rcvReportDelete);
@@ -1524,6 +1531,44 @@ async function deleteReceivingReportLine(row) {
   );
 }
 
+async function deleteReceivingReceipt(row) {
+  await refreshAccess();
+  if (isViewer()) return toast('Viewer access is read-only.', 'error');
+  if (state.mode !== 'ACTIVE') return toast('Administrative Pause is active. Receiving receipt deletion is blocked.', 'error');
+
+  if (row.receipt_status !== 'RECEIVED') {
+    return toast('Only receipts with no Put-away activity can be deleted.', 'error');
+  }
+
+  const receiptMeta = [
+    row.receipt_no,
+    row.source_name,
+    [row.document_type, row.document_number].filter(Boolean).join(' ')
+  ].filter(Boolean).join(' · ');
+
+  const message =
+    `DELETE ENTIRE RECEIVING RECEIPT\n\n${receiptMeta}\n\n` +
+    'This permanently deletes the receipt header and ALL item lines under this Receipt No.\n\n' +
+    'This is allowed only when no line has ever been partially or fully put away. ' +
+    'Inventory will not be changed because there are no Put-away allocations.\n\n' +
+    'The system Receipt No. will not be reused. Continue?';
+
+  if (!window.confirm(message)) return;
+
+  const { data, error } = await supabase.rpc('delete_inbound_receipt_v1', {
+    p_receipt_id: row.receipt_id
+  });
+
+  if (error) return toast(friendlyError(error), 'error');
+
+  await Promise.all([loadPending(), loadReport()]);
+  const result = data?.[0] || {};
+  toast(
+    `Receiving receipt ${result.receipt_no || row.receipt_no || ''} deleted with ${Number(result.deleted_line_count || 0)} item line(s). Inventory was unchanged.`,
+    'success'
+  );
+}
+
 function reportArgs() {
   const receivedFrom = $('rcv-report-received-from')?.value || '';
   const receivedTo = $('rcv-report-received-to')?.value || '';
@@ -1584,6 +1629,13 @@ function renderReport() {
   }
 
   const displayRows = rows.slice(0, 1000);
+  const deleteReceiptLineIds = new Set();
+  const seenReceiptIds = new Set();
+  for (const row of displayRows) {
+    if (seenReceiptIds.has(row.receipt_id)) continue;
+    seenReceiptIds.add(row.receipt_id);
+    if (row.receipt_status === 'RECEIVED') deleteReceiptLineIds.add(row.receipt_line_id);
+  }
 
   $('rcv-report-table').innerHTML = `<div class="table-wrap"><table><thead><tr>
     <th>Receipt</th><th>Type / Status</th><th>Received</th><th>User</th><th>Source / Document / Customer</th>
@@ -1606,6 +1658,7 @@ function renderReport() {
     <td><div class="rcv-report-actions">
       <button type="button" class="secondary" data-rcv-report-edit="${escapeHtml(row.receipt_line_id)}">Edit</button>
       ${(row.putaway_status === 'NOT_PUTAWAY' || row.putaway_status === 'PUTAWAY_PARTIAL') ? `<button type="button" class="danger" data-rcv-report-delete="${escapeHtml(row.receipt_line_id)}">Delete</button>` : ''}
+      ${deleteReceiptLineIds.has(row.receipt_line_id) ? `<button type="button" class="danger" data-rcv-report-delete-receipt="${escapeHtml(row.receipt_id)}">Delete Receipt</button>` : ''}
     </div></td>
   </tr>`).join('')}</tbody></table></div>
   ${rows.length > displayRows.length ? `<div class="small-note">Showing first ${displayRows.length} of ${rows.length} rows. CSV export includes all filtered rows.</div>` : ''}`;
