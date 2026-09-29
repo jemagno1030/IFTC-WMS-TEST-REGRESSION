@@ -3252,14 +3252,14 @@ async function submitShipperBatchApproval(event) {
   }
 }
 
-function requestWarehouseApproval({ title, contextHtml, rpcName, rpcArgs, confirmLabel = 'APPROVE ACTION' }) {
+function requestWarehouseApproval({ title, contextHtml, rpcName, rpcArgs, confirmLabel = 'APPROVE ACTION', credentialRoleLabel = 'Supervisor/Admin/Owner' }) {
   if (state.warehouseApproval) {
     toast('Another approval request is already open.', 'error');
     return Promise.resolve(null);
   }
 
   return new Promise((resolve) => {
-    state.warehouseApproval = { resolve, rpcName, rpcArgs };
+    state.warehouseApproval = { resolve, rpcName, rpcArgs, credentialRoleLabel };
     $('warehouse-approval-title').textContent = title || 'Approve controlled action';
     $('warehouse-approval-context').innerHTML = contextHtml || '';
     $('warehouse-approver-email').value = '';
@@ -3290,7 +3290,7 @@ async function submitWarehouseApproval(event) {
 
   const email = $('warehouse-approver-email').value.trim();
   const password = $('warehouse-approver-password').value;
-  if (!email || !password) return toast('Enter the Supervisor/Admin/Owner login email and password.', 'error');
+  if (!email || !password) return toast(`Enter the ${pending.credentialRoleLabel || 'Supervisor/Admin/Owner'} login email and password.`, 'error');
 
   const button = $('warehouse-approval-confirm');
   setBusy(button, true, 'Verifying approval…');
@@ -3306,7 +3306,7 @@ async function submitWarehouseApproval(event) {
     const { data, error } = await approvalClient.rpc(pending.rpcName, pending.rpcArgs);
     if (error) throw error;
     const approval = data?.[0];
-    if (!approval?.approval_token) throw new Error('Supervisor/Admin/Owner approval could not be created.');
+    if (!approval?.approval_token) throw new Error(`${pending.credentialRoleLabel || 'Supervisor/Admin/Owner'} approval could not be created.`);
 
     toast(`Approved by ${approval.approver_username || 'Supervisor'} (${String(approval.approver_role || '').toUpperCase()}).`, 'success');
     finishWarehouseApproval(approval);
@@ -10256,7 +10256,8 @@ async function deleteSystemHistoryRange(event) {
       p_end_date: end,
       p_reason: reason
     },
-    confirmLabel: 'CONFIRM DELETE'
+    confirmLabel: 'CONFIRM DELETE',
+    credentialRoleLabel: 'Admin/Owner'
   });
 
   if (!approval?.approval_token) return;
