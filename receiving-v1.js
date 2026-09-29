@@ -1342,8 +1342,9 @@ function openReceivingReportEdit(row) {
   skuSelect.value = row.sku_id || '';
 
   $('rcv-edit-container').value = row.container_no || '';
-  $('rcv-edit-expiry').value = row.expiry_date || '';
-  $('rcv-edit-no-expiry').checked = !row.expiry_date;
+  const rowHasNoExpiry = isNoExpiryDate(row.expiry_date);
+  $('rcv-edit-expiry').value = rowHasNoExpiry ? '' : String(row.expiry_date || '').slice(0, 10);
+  $('rcv-edit-no-expiry').checked = rowHasNoExpiry;
   syncReceivingReportEditExpiry();
 
   const qtyPrefix = isPartial ? 'remaining_' : '';
@@ -1421,7 +1422,7 @@ async function saveReceivingReportEdit(event) {
   const lineEditable = row.putaway_status === 'NOT_PUTAWAY' || row.putaway_status === 'PUTAWAY_PARTIAL';
   const partial = row.putaway_status === 'PUTAWAY_PARTIAL';
   const expiry = $('rcv-edit-no-expiry').checked ? null : ($('rcv-edit-expiry').value || null);
-  const skuId = $('rcv-edit-sku-select').value;
+  const skuId = $('rcv-edit-sku-select').value || row.sku_id;
   const container = $('rcv-edit-container').value.trim();
   const caseQty = Number($('rcv-edit-case-qty').value || 0);
   const packQty = Number($('rcv-edit-pack-qty').value || 0);
@@ -1434,7 +1435,7 @@ async function saveReceivingReportEdit(event) {
   const lineChanged = lineEditable && (
     skuId !== row.sku_id
     || container !== String(row.container_no || '').trim()
-    || (expiry || null) !== (row.expiry_date || null)
+    || (expiry || null) !== (isNoExpiryDate(row.expiry_date) ? null : String(row.expiry_date || '').slice(0, 10))
     || caseQty !== currentCase
     || packQty !== currentPack
     || pieceQty !== currentPiece
