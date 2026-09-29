@@ -100,6 +100,10 @@ function isViewer() {
   return String(state.profile?.role || '').toLowerCase() === 'viewer';
 }
 
+function canManageReceivingReport() {
+  return ['admin', 'owner'].includes(String(state.profile?.role || '').toLowerCase());
+}
+
 function isActiveAccount() {
   return Boolean(state.session && state.profile?.is_active);
 }
@@ -1629,6 +1633,7 @@ function renderReport() {
   }
 
   const displayRows = rows.slice(0, 1000);
+  const canManageReport = canManageReceivingReport();
   const deleteReceiptLineIds = new Set();
   const seenReceiptIds = new Set();
   for (const row of displayRows) {
@@ -1639,7 +1644,7 @@ function renderReport() {
 
   $('rcv-report-table').innerHTML = `<div class="table-wrap"><table><thead><tr>
     <th>Receipt</th><th>Type / Status</th><th>Received</th><th>User</th><th>Source / Document / Customer</th>
-    <th>SKU</th><th>Container / Expiry</th><th>Quantity Progress</th><th>Put-away</th><th>Allocation History</th><th>Actions</th>
+    <th>SKU</th><th>Container / Expiry</th><th>Quantity Progress</th><th>Put-away</th><th>Allocation History</th>${canManageReport ? '<th>Actions</th>' : ''}
   </tr></thead><tbody>${displayRows.map((row) => `<tr>
     <td><strong>${escapeHtml(row.receipt_no || '')}</strong></td>
     <td>${escapeHtml(row.receipt_type === 'BACKLOAD_RETURN' ? 'Backload Return' : 'Regular Delivery')}<br><small>${escapeHtml(row.receipt_status || '')}</small></td>
@@ -1655,11 +1660,11 @@ function renderReport() {
     </td>
     <td>${escapeHtml(row.putaway_status || '')}<br><small>${Number(row.allocation_count || 0)} allocation(s)</small></td>
     <td>${allocationHistoryHtml(row)}</td>
-    <td><div class="rcv-report-actions">
+    ${canManageReport ? `<td><div class="rcv-report-actions">
       <button type="button" class="secondary" data-rcv-report-edit="${escapeHtml(row.receipt_line_id)}">Edit</button>
       ${(row.putaway_status === 'NOT_PUTAWAY' || row.putaway_status === 'PUTAWAY_PARTIAL') ? `<button type="button" class="danger" data-rcv-report-delete="${escapeHtml(row.receipt_line_id)}">Delete</button>` : ''}
       ${deleteReceiptLineIds.has(row.receipt_line_id) ? `<button type="button" class="danger" data-rcv-report-delete-receipt="${escapeHtml(row.receipt_id)}">Delete Receipt</button>` : ''}
-    </div></td>
+    </div></td>` : ''}
   </tr>`).join('')}</tbody></table></div>
   ${rows.length > displayRows.length ? `<div class="small-note">Showing first ${displayRows.length} of ${rows.length} rows. CSV export includes all filtered rows.</div>` : ''}`;
 }
