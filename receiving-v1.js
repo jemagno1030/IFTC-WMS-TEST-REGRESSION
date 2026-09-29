@@ -1585,14 +1585,14 @@ function renderReport() {
   const displayRows = rows.slice(0, 1000);
 
   $('rcv-report-table').innerHTML = `<div class="table-wrap"><table><thead><tr>
-    <th>Receipt</th><th>Type / Status</th><th>Received</th><th>User</th><th>Document / Customer</th>
-    <th>SKU</th><th>Container / Expiry</th><th>Quantity Progress</th><th>Put-away</th><th>Allocation History</th>
+    <th>Receipt</th><th>Type / Status</th><th>Received</th><th>User</th><th>Source / Document / Customer</th>
+    <th>SKU</th><th>Container / Expiry</th><th>Quantity Progress</th><th>Put-away</th><th>Allocation History</th><th>Actions</th>
   </tr></thead><tbody>${displayRows.map((row) => `<tr>
     <td><strong>${escapeHtml(row.receipt_no || '')}</strong></td>
     <td>${escapeHtml(row.receipt_type === 'BACKLOAD_RETURN' ? 'Backload Return' : 'Regular Delivery')}<br><small>${escapeHtml(row.receipt_status || '')}</small></td>
     <td>${escapeHtml(fmtDateTime(row.received_at))}</td>
     <td>${escapeHtml(row.received_by_username || '')}</td>
-    <td>${escapeHtml([row.document_type, row.document_number].filter(Boolean).join(' '))}${row.intended_customer_name ? `<br><small>${escapeHtml(row.intended_customer_name)}</small>` : ''}</td>
+    <td>${row.source_name ? `<strong>${escapeHtml(row.source_name)}</strong><br>` : ''}${escapeHtml([row.document_type, row.document_number].filter(Boolean).join(' '))}${row.intended_customer_name ? `<br><small>${escapeHtml(row.intended_customer_name)}</small>` : ''}</td>
     <td>${escapeHtml([row.brand, row.description, row.variant, row.size].filter(Boolean).join(' '))}</td>
     <td>${escapeHtml(row.container_no || '')}<br><small>${escapeHtml(fmtDate(row.expiry_date))}</small></td>
     <td>
@@ -1602,6 +1602,10 @@ function renderReport() {
     </td>
     <td>${escapeHtml(row.putaway_status || '')}<br><small>${Number(row.allocation_count || 0)} allocation(s)</small></td>
     <td>${allocationHistoryHtml(row)}</td>
+    <td><div class="rcv-report-actions">
+      <button type="button" class="secondary" data-rcv-report-edit="${escapeHtml(row.receipt_line_id)}">Edit</button>
+      ${(row.putaway_status === 'NOT_PUTAWAY' || row.putaway_status === 'PUTAWAY_PARTIAL') ? `<button type="button" class="danger" data-rcv-report-delete="${escapeHtml(row.receipt_line_id)}">Delete</button>` : ''}
+    </div></td>
   </tr>`).join('')}</tbody></table></div>
   ${rows.length > displayRows.length ? `<div class="small-note">Showing first ${displayRows.length} of ${rows.length} rows. CSV export includes all filtered rows.</div>` : ''}`;
 }
