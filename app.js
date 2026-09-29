@@ -10239,12 +10239,35 @@ async function deleteSystemHistoryRange(event) {
 
   if (!window.confirm(`PERMANENT HISTORY DELETE\n\nInclusive dates: ${start} through ${end}\n\nThis will delete ${summary}.\n\nCurrent inventory balances are not deleted. An audit event recording this administrative deletion will be created after the purge.\n\nContinue?`)) return;
 
+  const approval = await requestWarehouseApproval({
+    title: 'Confirm permanent history deletion',
+    contextHtml: `
+      <strong>Permanent history deletion requires WMS credential confirmation.</strong><br><br>
+      Date range: <strong>${escapeHtml(start)}</strong> through <strong>${escapeHtml(end)}</strong><br>
+      Records selected: <strong>${escapeHtml(summary)}</strong><br>
+      Reason: <strong>${escapeHtml(reason)}</strong><br><br>
+      Enter the WMS login email and password of an active <strong>Admin or Owner</strong> to authorize this exact deletion.
+      The approval is single-use, short-lived, and tied to this date range and reason.
+    `,
+    rpcName: 'approve_history_delete_v1',
+    rpcArgs: {
+      p_requested_by: state.session.user.id,
+      p_start_date: start,
+      p_end_date: end,
+      p_reason: reason
+    },
+    confirmLabel: 'CONFIRM DELETE'
+  });
+
+  if (!approval?.approval_token) return;
+
   const button = event.submitter;
   setBusy(button, true, 'Deleting…');
-  const { data, error } = await supabase.rpc('admin_delete_history_range', {
+  const { data, error } = await supabase.rpc('admin_delete_history_range_v2', {
     p_start_date: start,
     p_end_date: end,
-    p_reason: reason
+    p_reason: reason,
+    p_approval_token: approval.approval_token
   });
   setBusy(button, false);
 
@@ -10262,7 +10285,8 @@ async function deleteSystemHistoryRange(event) {
     Deleted ${Number(result.deleted_transactions || 0).toLocaleString()} transaction(s),
     ${Number(result.deleted_transaction_lines || 0).toLocaleString()} transaction line(s),
     ${Number(result.deleted_audit_events || 0).toLocaleString()} audit event(s), and
-    ${Number(result.deleted_non_fefo_events || 0).toLocaleString()} Non-FEFO detail row(s).`;
+    ${Number(result.deleted_non_fefo_events || 0).toLocaleString()} Non-FEFO detail row(s).<br>
+    <small>Credential approval: ${escapeHtml(result.approved_by_username || approval.approver_username || 'Admin/Owner')} (${escapeHtml(String(result.approved_by_role || approval.approver_role || '').toUpperCase())})</small>`;
   $('system-history-reason').value = '';
   await loadSystemManager(true);
   toast('Selected transaction and audit history permanently deleted.', 'success');
