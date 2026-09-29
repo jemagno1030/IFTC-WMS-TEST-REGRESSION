@@ -341,7 +341,7 @@ function installUi() {
             <button id="rcv-report-refresh" type="button" class="secondary">Apply filters</button>
             <button id="rcv-report-reset" type="button" class="ghost">Reset filters</button>
             <button id="rcv-report-export" type="button" class="secondary">Export filtered CSV</button>
-            <button id="rcv-report-print" type="button" class="secondary">Printer-friendly</button>
+            <button id="rcv-report-print" type="button" class="secondary">Print Report</button>
           </div>
         </div>
 
@@ -1394,7 +1394,7 @@ async function printReceivingReport() {
 <meta charset="utf-8">
 <title>Receiving Report</title>
 <style>
-  @page { size: A4 landscape; margin: 9mm; }
+  @page { size: Letter landscape; margin: 9mm; }
   * { box-sizing: border-box; }
   body { margin: 0; color: #111; font-family: Arial, Helvetica, sans-serif; font-size: 8px; line-height: 1.25; }
   h1 { margin: 0 0 2px; font-size: 16px; }
