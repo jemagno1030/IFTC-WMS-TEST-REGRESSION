@@ -1692,7 +1692,7 @@ async function loadDashboard() {
 
   const receivingPutaway = receivingPutawayRes.data?.[0] || {};
   const receivingQty = (caseQty, packQty, pieceQty) =>
-    `${Number(caseQty || 0).toLocaleString()} CASE · ${Number(packQty || 0).toLocaleString()} PACK · ${Number(pieceQty || 0).toLocaleString()} PC`;
+    `${Number(caseQty || 0).toLocaleString()} cases · ${Number(packQty || 0).toLocaleString()} packs · ${Number(pieceQty || 0).toLocaleString()} pieces`;
 
   $('dashboard-kpis').innerHTML = [
     ['Stock balances', formatBalances(sumByUom(inventory))],
