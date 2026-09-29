@@ -40,6 +40,7 @@ const state = {
   cart: [],
   pendingRows: [],
   reportRows: [],
+  reportEditRow: null,
   selectedReceiptId: null,
   tab: 'ops',
   backloadDuplicate: false,
@@ -136,6 +137,14 @@ function installStyles() {
     #screen-receiving .rcv-summary-chip{border:1px solid #d7dee7;border-radius:999px;padding:5px 10px;background:#fff;font-size:.85rem}
     #screen-receiving .rcv-test-badge{display:inline-block;border-radius:999px;padding:4px 9px;background:#fff3cd;color:#7a4b00;font-weight:800;font-size:.8rem}
     #screen-receiving .rcv-warning{color:#8a4b00;font-weight:700}
+    #screen-receiving .rcv-report-actions{display:flex;gap:6px;flex-wrap:wrap}
+    #rcv-report-edit-dialog{width:min(920px,94vw);max-height:92vh;border:1px solid #cfd8e3;border-radius:12px;padding:0}
+    #rcv-report-edit-dialog::backdrop{background:rgba(15,23,42,.42)}
+    #rcv-report-edit-dialog .rcv-edit-shell{padding:18px;max-height:88vh;overflow:auto}
+    #rcv-report-edit-dialog .rcv-edit-section{border:1px solid #d7dee7;border-radius:10px;padding:14px;margin:12px 0}
+    #rcv-report-edit-dialog .rcv-edit-section h4{margin:0 0 10px}
+    #rcv-report-edit-dialog .rcv-edit-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:14px}
+    #rcv-report-edit-dialog .rcv-locked{opacity:.65}
     body.receiving-v1-pinned #screen-receiving{display:block!important}
     body.receiving-v1-pinned #app-view .screen:not(#screen-receiving){display:none!important}
     @media(max-width:900px){#screen-receiving .rcv-grid,#screen-receiving .rcv-line-grid{grid-template-columns:1fr}}
@@ -178,10 +187,87 @@ function installScannerDialog() {
   dialog.addEventListener('close', stopCamera);
 }
 
+function installReportEditDialog() {
+  if ($('rcv-report-edit-dialog')) return;
+  const dialog = document.createElement('dialog');
+  dialog.id = 'rcv-report-edit-dialog';
+  dialog.innerHTML = `
+    <form id="rcv-report-edit-form" class="rcv-edit-shell">
+      <div class="card-head">
+        <div>
+          <h3>Edit Receiving record</h3>
+          <p id="rcv-edit-receipt-meta">—</p>
+        </div>
+        <button id="rcv-report-edit-close" class="icon-button" type="button" aria-label="Close">✕</button>
+      </div>
+
+      <div class="rcv-edit-section">
+        <h4>Document record</h4>
+        <p class="small-note">Changes here apply to every item line under the same system Receipt No. The Receipt No. itself remains unchanged.</p>
+        <div class="form-grid two">
+          <label>Receiving type *
+            <select id="rcv-edit-type" required>
+              <option value="REGULAR_DELIVERY">Regular Delivery</option>
+              <option value="BACKLOAD_RETURN">Backload Return</option>
+            </select>
+          </label>
+          <label>Source / Supplier
+            <input id="rcv-edit-source" maxlength="200" autocomplete="off" />
+          </label>
+          <label>Document type
+            <input id="rcv-edit-doc-type" maxlength="100" autocomplete="off" />
+          </label>
+          <label>Document number
+            <input id="rcv-edit-doc-number" maxlength="200" autocomplete="off" />
+          </label>
+        </div>
+        <div id="rcv-edit-backload-fields" class="form-grid two hidden">
+          <label>Intended customer name *
+            <input id="rcv-edit-customer" maxlength="200" autocomplete="off" />
+          </label>
+          <label>Return reason *
+            <textarea id="rcv-edit-return-reason" maxlength="1000" rows="2"></textarea>
+          </label>
+        </div>
+      </div>
+
+      <div id="rcv-edit-line-section" class="rcv-edit-section">
+        <h4>SKU line</h4>
+        <div id="rcv-edit-line-note" class="info-box"></div>
+        <div class="form-grid two">
+          <label>SKU *
+            <select id="rcv-edit-sku-select"></select>
+          </label>
+          <label>Container No. *
+            <input id="rcv-edit-container" maxlength="200" autocomplete="off" />
+          </label>
+        </div>
+        <div class="rcv-line-grid">
+          <div>
+            <label>Expiry date<input id="rcv-edit-expiry" type="date" /></label>
+            <label class="rcv-no-expiry"><input id="rcv-edit-no-expiry" type="checkbox" /> No expiry (N/A)</label>
+          </div>
+          <div class="rcv-qty-grid">
+            <label id="rcv-edit-case-label">CASE qty<input id="rcv-edit-case-qty" type="number" min="0" step="1" inputmode="numeric" /></label>
+            <label id="rcv-edit-pack-label">PACK qty<input id="rcv-edit-pack-qty" type="number" min="0" step="1" inputmode="numeric" /></label>
+            <label id="rcv-edit-piece-label">PIECE qty<input id="rcv-edit-piece-qty" type="number" min="0" step="1" inputmode="numeric" /></label>
+          </div>
+        </div>
+      </div>
+
+      <div class="rcv-edit-actions">
+        <button id="rcv-report-edit-cancel" type="button" class="ghost">Cancel</button>
+        <button id="rcv-report-edit-save" type="submit">Save changes</button>
+      </div>
+    </form>`;
+  document.body.appendChild(dialog);
+}
+
 function installUi() {
   if ($('screen-receiving')) return;
   installStyles();
   installScannerDialog();
+  installReportEditDialog();
 
   const putawayNav = document.querySelector('#main-nav [data-screen="putaway"]');
   if (putawayNav && !$('receiving-v1-nav')) {
