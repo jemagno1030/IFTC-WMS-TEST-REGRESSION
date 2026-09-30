@@ -1811,6 +1811,111 @@ async function loadDashboard() {
   if (locked) toast(`${locked} location${locked === 1 ? '' : 's'} currently locked for active work.`);
 }
 
+function ensureDashboardOperationalExceptionPanels() {
+  if ($('dashboard-open-empty-sales-orders') && $('dashboard-container-priority-overrides')) return;
+
+  const pendingCard = $('dashboard-pending-sales-orders');
+  const anchor = pendingCard?.closest('.content-grid.two');
+  if (!anchor) return;
+
+  const row = document.createElement('div');
+  row.id = 'dashboard-operational-exceptions-v1';
+  row.className = 'content-grid two';
+  row.style.marginTop = '18px';
+  row.innerHTML = `
+    <article class="card">
+      <div class="card-head">
+        <div>
+          <h3>Opened Sales Orders — no saved picks</h3>
+          <p>OPEN Picking sessions with zero completed rack PICK transactions in the current open/reopen cycle. These can remain after a rack lock expires or the user leaves Picking.</p>
+        </div>
+        <span id="dashboard-open-empty-sales-orders-count" class="pill">0 open</span>
+      </div>
+      <div id="dashboard-open-empty-sales-orders" class="table-wrap"></div>
+    </article>
+    <article class="card">
+      <div class="card-head">
+        <div>
+          <h3>Container priority overrides</h3>
+          <p>Confirmed later-container selections where an earlier eligible shipment container existed at the same FEFO expiry. Latest retained 90-day events are shown first.</p>
+        </div>
+        <span id="dashboard-container-priority-overrides-count" class="pill">0 / 90 days</span>
+      </div>
+      <div id="dashboard-container-priority-overrides" class="table-wrap"></div>
+    </article>`;
+  anchor.insertAdjacentElement('afterend', row);
+}
+
+function dashboardOpenSoAge(openedAt) {
+  const opened = new Date(openedAt);
+  if (Number.isNaN(opened.getTime())) return { text: '—', level: '' };
+  const ms = Math.max(0, Date.now() - opened.getTime());
+  const minutes = Math.floor(ms / 60000);
+  const hours = Math.floor(ms / 3600000);
+  const days = Math.floor(ms / 86400000);
+  if (minutes < 60) return { text: `${minutes} min`, level: '' };
+  if (hours < 24) return { text: `${hours} hr`, level: '' };
+  if (days <= 3) return { text: `${days} day${days === 1 ? '' : 's'}`, level: 'near' };
+  return { text: `${days} days`, level: 'expired' };
+}
+
+function renderDashboardOpenEmptySalesOrders(rows) {
+  const container = $('dashboard-open-empty-sales-orders');
+  const count = $('dashboard-open-empty-sales-orders-count');
+  if (!container || !count) return;
+
+  count.textContent = `${rows.length} open`;
+  if (!rows.length) {
+    container.innerHTML = emptyState('No OPEN Sales Order is currently sitting with zero saved picks in its current cycle.');
+    return;
+  }
+
+  container.innerHTML = `<div class="table-wrap"><table><thead><tr>
+    <th>Sales Order</th><th>Opened by</th><th>Session</th><th>Opened</th><th>Age</th><th>Current rack lock</th>
+  </tr></thead><tbody>${rows.map((r) => {
+    const age = dashboardOpenSoAge(r.opened_at);
+    const session = r.is_reopened_cycle
+      ? '<span class="pill override">REOPENED</span>'
+      : '<span class="pill">FRESH</span>';
+    const lock = Number(r.active_lock_count || 0) > 0
+      ? `<strong>${escapeHtml(r.active_racks || 'Active')}</strong>`
+      : '<span class="small-note">None</span>';
+    return `<tr>
+      <td><strong>${escapeHtml(r.sales_order || '—')}</strong></td>
+      <td>${escapeHtml(r.opened_by_username || '—')}</td>
+      <td>${session}</td>
+      <td>${fmtDateTime(r.opened_at)}</td>
+      <td><span class="pill ${age.level}">${escapeHtml(age.text)}</span></td>
+      <td>${lock}</td>
+    </tr>`;
+  }).join('')}</tbody></table></div>`;
+}
+
+function renderDashboardContainerPriorityOverrides(rows) {
+  const container = $('dashboard-container-priority-overrides');
+  const count = $('dashboard-container-priority-overrides-count');
+  if (!container || !count) return;
+
+  const total = Number(rows[0]?.total_retained_override_count || 0);
+  count.textContent = `${total.toLocaleString()} / 90 days`;
+  if (!rows.length) {
+    container.innerHTML = emptyState('No container-priority override has been recorded in the retained 90-day window.');
+    return;
+  }
+
+  const visible = rows.slice(0, 20);
+  container.innerHTML = `<div class="table-wrap"><table><thead><tr>
+    <th>Time</th><th>SO / Transaction</th><th>Picker</th><th>SKU / Qty</th><th>Selected</th><th>Earlier priority</th>
+  </tr></thead><tbody>${visible.map((r) => `<tr>
+    <td>${fmtDateTime(r.occurred_at)}</td>
+    <td><strong>${escapeHtml(r.sales_order || '—')}</strong><br><small>${escapeHtml(r.transaction_no || '—')}</small></td>
+    <td>${escapeHtml(r.picker_username || '—')}</td>
+    <td class="wrap"><strong>${escapeHtml(r.sku_name || '—')}</strong><br><small>${fmtQty(r.qty)} ${escapeHtml(r.uom || '')}</small></td>
+    <td class="wrap"><strong>${escapeHtml(r.selected_container || '—')}</strong><br><small>${escapeHtml(r.selected_location || '—')} · ${fmtDate(r.selected_expiry)}</small></td>
+    <td class="wrap"><strong>${escapeHtml(r.recommended_container || '—')}</strong><br><small>${escapeHtml(r.recommended_location || '—')} · ${fmtDate(r.recommended_expiry)}</small></td>
+  </tr>`).join('')}</tbody></table></div>${total > visible.length ? `<p class="small-note">Showing the latest ${visible.length.toLocaleString()} of ${total.toLocaleString()} retained override event(s). Complete details remain in System Audit Events.</p>` : ''}`;
+}
+
 function renderDashboardPendingSalesOrders(rows) {
   const container = $('dashboard-pending-sales-orders');
   const count = $('dashboard-pending-sales-orders-count');
