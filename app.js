@@ -1745,33 +1745,32 @@ async function loadScreen(name, force = false) {
 
 async function loadDashboard() {
   ensureDashboardOperationalExceptionPanels();
-  const [inventoryRes, locationRes, historyRes, pendingSoRes, activeLocksRes, pendingReturnsRes, openEmptySoRes, containerPriorityRes, receivingPutawayRes] = await Promise.all([
-    supabase.from('v_inventory_details').select('*').limit(10000),
-    supabase.from('v_location_summary').select('*').limit(5000),
-    supabase.from('v_history_details').select('*').order('created_at', { ascending: false }).limit(12),
-    supabase.rpc('get_dashboard_pending_pick_sales_orders'),
-    supabase.rpc('get_dashboard_active_location_locks'),
-    supabase.rpc('get_saved_pick_action_queue'),
-    supabase.rpc('get_dashboard_open_empty_pick_sales_orders_v1'),
-    supabase.rpc('get_dashboard_container_priority_overrides_v1'),
-    supabase.rpc('get_dashboard_receiving_putaway_summary_v1')
-  ]);
-  [inventoryRes, locationRes, historyRes, pendingSoRes, activeLocksRes, pendingReturnsRes, openEmptySoRes, containerPriorityRes, receivingPutawayRes].forEach((r) => { if (r.error) throw r.error; });
-  const inventory = inventoryRes.data || [];
-  const locations = locationRes.data || [];
+
+  const { data, error } = await supabase.rpc('get_dashboard_snapshot_v1');
+  if (error) throw error;
+
+  const snapshot = data?.[0] || {};
+  const inventory = Array.isArray(snapshot.inventory_rows) ? snapshot.inventory_rows : [];
+  const historyRows = Array.isArray(snapshot.recent_history_rows) ? snapshot.recent_history_rows : [];
+  const pendingSalesOrders = Array.isArray(snapshot.pending_sales_orders) ? snapshot.pending_sales_orders : [];
+  const activeLocks = Array.isArray(snapshot.active_locks) ? snapshot.active_locks : [];
+  const pendingPickReturns = Array.isArray(snapshot.pending_pick_returns) ? snapshot.pending_pick_returns : [];
+  const openEmptySalesOrders = Array.isArray(snapshot.open_empty_sales_orders) ? snapshot.open_empty_sales_orders : [];
+  const containerPriorityOverrides = Array.isArray(snapshot.container_priority_overrides) ? snapshot.container_priority_overrides : [];
+
   const attention = inventory.filter((r) => r.expiry_status !== 'OK');
   const containers = new Set(inventory.map((r) => r.container_no));
-  const physicalLocations = locations.filter((r) => !r.is_pending);
-  const occupied = physicalLocations.filter((r) => Number(r.total_piece_qty) > 0 || Number(r.total_pack_qty) > 0 || Number(r.total_case_qty) > 0).length;
-  const locked = physicalLocations.filter((r) => r.is_locked).length;
+  const physicalLocationCount = Number(snapshot.physical_location_count || 0);
+  const occupied = Number(snapshot.occupied_location_count || 0);
+  const locked = Number(snapshot.locked_location_count || 0);
 
-  const receivingPutaway = receivingPutawayRes.data?.[0] || {};
+  const receivingPutaway = snapshot.receiving_putaway || {};
   const receivingQty = (caseQty, packQty, pieceQty) =>
     `${Number(caseQty || 0).toLocaleString()} cases · ${Number(packQty || 0).toLocaleString()} packs · ${Number(pieceQty || 0).toLocaleString()} pieces`;
 
   $('dashboard-kpis').innerHTML = [
     ['Stock balances', formatBalances(sumByUom(inventory))],
-    ['Occupied rack locations', `${occupied} / ${physicalLocations.length}`],
+    ['Occupied rack locations', `${occupied} / ${physicalLocationCount}`],
     ['Active containers', containers.size],
     ['Expiry attention', attention.length],
     ['Not yet put-away', receivingQty(
@@ -1793,7 +1792,7 @@ async function loadDashboard() {
     ['Location', (r) => escapeHtml(r.location_code)]
   ]) : emptyState('No expired or near-expiry stock.');
 
-  const distinctHistory = uniqueBy(historyRes.data || [], (r) => r.transaction_id).slice(0, 6);
+  const distinctHistory = uniqueBy(historyRows, (r) => r.transaction_id).slice(0, 6);
   $('dashboard-history').innerHTML = distinctHistory.length ? miniTable(distinctHistory, [
     ['Transaction', (r) => escapeHtml(r.tx_no)],
     ['Action', (r) => escapeHtml(r.transaction_type)],
@@ -1801,120 +1800,15 @@ async function loadDashboard() {
     ['Time', (r) => fmtDateTime(r.created_at)]
   ]) : emptyState('No transactions yet.');
 
-  renderDashboardPendingSalesOrders(pendingSoRes.data || []);
-  renderDashboardOpenEmptySalesOrders(openEmptySoRes.data || []);
-  renderDashboardContainerPriorityOverrides(containerPriorityRes.data || []);
-  state.dashboardPendingPickReturns = pendingReturnsRes.data || [];
+  renderDashboardPendingSalesOrders(pendingSalesOrders);
+  renderDashboardOpenEmptySalesOrders(openEmptySalesOrders);
+  renderDashboardContainerPriorityOverrides(containerPriorityOverrides);
+  state.dashboardPendingPickReturns = pendingPickReturns;
   renderDashboardPendingPickReturns(state.dashboardPendingPickReturns);
-  renderDashboardActiveLocks(activeLocksRes.data || []);
+  renderDashboardActiveLocks(activeLocks);
   renderDashboardConsolidation(inventory);
 
   if (locked) toast(`${locked} location${locked === 1 ? '' : 's'} currently locked for active work.`);
-}
-
-function ensureDashboardOperationalExceptionPanels() {
-  if ($('dashboard-open-empty-sales-orders') && $('dashboard-container-priority-overrides')) return;
-
-  const pendingCard = $('dashboard-pending-sales-orders');
-  const anchor = pendingCard?.closest('.content-grid.two');
-  if (!anchor) return;
-
-  const row = document.createElement('div');
-  row.id = 'dashboard-operational-exceptions-v1';
-  row.className = 'content-grid two';
-  row.style.marginTop = '18px';
-  row.innerHTML = `
-    <article class="card">
-      <div class="card-head">
-        <div>
-          <h3>Opened Sales Orders — no saved picks</h3>
-          <p>OPEN Picking sessions with zero completed rack PICK transactions in the current open/reopen cycle. These can remain after a rack lock expires or the user leaves Picking.</p>
-        </div>
-        <span id="dashboard-open-empty-sales-orders-count" class="pill">0 open</span>
-      </div>
-      <div id="dashboard-open-empty-sales-orders" class="table-wrap"></div>
-    </article>
-    <article class="card">
-      <div class="card-head">
-        <div>
-          <h3>Container priority overrides</h3>
-          <p>Confirmed later-container selections where an earlier eligible shipment container existed at the same FEFO expiry. Latest retained 90-day events are shown first.</p>
-        </div>
-        <span id="dashboard-container-priority-overrides-count" class="pill">0 / 90 days</span>
-      </div>
-      <div id="dashboard-container-priority-overrides" class="table-wrap"></div>
-    </article>`;
-  anchor.insertAdjacentElement('afterend', row);
-}
-
-function dashboardOpenSoAge(openedAt) {
-  const opened = new Date(openedAt);
-  if (Number.isNaN(opened.getTime())) return { text: '—', level: '' };
-  const ms = Math.max(0, Date.now() - opened.getTime());
-  const minutes = Math.floor(ms / 60000);
-  const hours = Math.floor(ms / 3600000);
-  const days = Math.floor(ms / 86400000);
-  if (minutes < 60) return { text: `${minutes} min`, level: '' };
-  if (hours < 24) return { text: `${hours} hr`, level: '' };
-  if (days <= 3) return { text: `${days} day${days === 1 ? '' : 's'}`, level: 'near' };
-  return { text: `${days} days`, level: 'expired' };
-}
-
-function renderDashboardOpenEmptySalesOrders(rows) {
-  const container = $('dashboard-open-empty-sales-orders');
-  const count = $('dashboard-open-empty-sales-orders-count');
-  if (!container || !count) return;
-
-  count.textContent = `${rows.length} open`;
-  if (!rows.length) {
-    container.innerHTML = emptyState('No OPEN Sales Order is currently sitting with zero saved picks in its current cycle.');
-    return;
-  }
-
-  container.innerHTML = `<div class="table-wrap"><table><thead><tr>
-    <th>Sales Order</th><th>Opened by</th><th>Session</th><th>Opened</th><th>Age</th><th>Current rack lock</th>
-  </tr></thead><tbody>${rows.map((r) => {
-    const age = dashboardOpenSoAge(r.opened_at);
-    const session = r.is_reopened_cycle
-      ? '<span class="pill override">REOPENED</span>'
-      : '<span class="pill">FRESH</span>';
-    const lock = Number(r.active_lock_count || 0) > 0
-      ? `<strong>${escapeHtml(r.active_racks || 'Active')}</strong>`
-      : '<span class="small-note">None</span>';
-    return `<tr>
-      <td><strong>${escapeHtml(r.sales_order || '—')}</strong></td>
-      <td>${escapeHtml(r.opened_by_username || '—')}</td>
-      <td>${session}</td>
-      <td>${fmtDateTime(r.opened_at)}</td>
-      <td><span class="pill ${age.level}">${escapeHtml(age.text)}</span></td>
-      <td>${lock}</td>
-    </tr>`;
-  }).join('')}</tbody></table></div>`;
-}
-
-function renderDashboardContainerPriorityOverrides(rows) {
-  const container = $('dashboard-container-priority-overrides');
-  const count = $('dashboard-container-priority-overrides-count');
-  if (!container || !count) return;
-
-  const total = Number(rows[0]?.total_retained_override_count || 0);
-  count.textContent = `${total.toLocaleString()} / 90 days`;
-  if (!rows.length) {
-    container.innerHTML = emptyState('No container-priority override has been recorded in the retained 90-day window.');
-    return;
-  }
-
-  const visible = rows.slice(0, 20);
-  container.innerHTML = `<div class="table-wrap"><table><thead><tr>
-    <th>Time</th><th>SO / Transaction</th><th>Picker</th><th>SKU / Qty</th><th>Selected</th><th>Earlier priority</th>
-  </tr></thead><tbody>${visible.map((r) => `<tr>
-    <td>${fmtDateTime(r.occurred_at)}</td>
-    <td><strong>${escapeHtml(r.sales_order || '—')}</strong><br><small>${escapeHtml(r.transaction_no || '—')}</small></td>
-    <td>${escapeHtml(r.picker_username || '—')}</td>
-    <td class="wrap"><strong>${escapeHtml(r.sku_name || '—')}</strong><br><small>${fmtQty(r.qty)} ${escapeHtml(r.uom || '')}</small></td>
-    <td class="wrap"><strong>${escapeHtml(r.selected_container || '—')}</strong><br><small>${escapeHtml(r.selected_location || '—')} · ${fmtDate(r.selected_expiry)}</small></td>
-    <td class="wrap"><strong>${escapeHtml(r.recommended_container || '—')}</strong><br><small>${escapeHtml(r.recommended_location || '—')} · ${fmtDate(r.recommended_expiry)}</small></td>
-  </tr>`).join('')}</tbody></table></div>${total > visible.length ? `<p class="small-note">Showing the latest ${visible.length.toLocaleString()} of ${total.toLocaleString()} retained override event(s). Complete details remain in System Audit Events.</p>` : ''}`;
 }
 
 function renderDashboardPendingSalesOrders(rows) {
