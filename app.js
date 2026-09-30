@@ -11298,68 +11298,81 @@ async function fetchHistoryVNextBatch(filters, limit, offset) {
   return data || [];
 }
 
-async function loadVisibleHistoryTransactionSafety(rows) {
-  if (!isAdminOrOwner()) return;
-
-  const transactionIds = [...new Set(
-    (rows || []).map((row) => row.transaction_id).filter(Boolean)
-  )];
-  if (!transactionIds.length) return;
-
-  const { data, error } = await supabase.rpc('admin_history_transaction_safety_v1', {
-    p_transaction_ids: transactionIds
-  });
-
-  if (error) {
-    console.warn('History visible transaction safety unavailable:', error);
-    // Fail closed for PICK generic correction. Read-only History remains available,
-    // but no PICK transaction on this page is treated as correction-safe.
-    (rows || []).forEach((row) => {
-      if (row.transaction_type === 'PICK') row.transaction_has_saved_pick_correction = true;
-    });
-    return;
-  }
-
-  const safetyByTransaction = new Map(
-    (data || []).map((row) => [String(row.transaction_id), row])
-  );
-
-  (rows || []).forEach((row) => {
-    const safety = safetyByTransaction.get(String(row.transaction_id));
-    if (safety) {
-      row.transaction_has_saved_pick_correction = Boolean(
-        safety.transaction_has_saved_pick_correction
-      );
-    }
-  });
-}
-
 async function loadVisibleHistoryRevertStatuses(rows) {
   state.pickRevertStatusByLine = new Map();
   state.pickRevertStatusLoaded = true;
 
   if (!isAdminOrOwner()) return;
 
-  const lineIds = [...new Set(
+  const pickTransactionIds = [...new Set(
     (rows || [])
-      .filter((row) => row.transaction_type === 'PICK' && Number(row.signed_qty) < 0 && row.line_id)
-      .map((row) => row.line_id)
+      .filter((row) => row.transaction_type === 'PICK' && row.transaction_id)
+      .map((row) => row.transaction_id)
   )];
 
-  if (!lineIds.length) return;
+  if (!pickTransactionIds.length) return;
 
-  const { data, error } = await supabase.rpc('admin_get_history_pick_revert_statuses_v2', {
-    p_transaction_line_ids: lineIds
-  });
+  const { data: siblingLines, error: siblingError } = await supabase
+    .from('transaction_lines')
+    .select('id,transaction_id,signed_qty')
+    .in('transaction_id', pickTransactionIds)
+    .lt('signed_qty', 0);
 
-  if (error) {
-    console.warn('History visible PICK-line Revert status unavailable:', error);
+  if (siblingError) {
+    console.warn('History PICK sibling-line safety unavailable:', siblingError);
+    (rows || []).forEach((row) => {
+      if (row.transaction_type === 'PICK') row.transaction_has_saved_pick_correction = true;
+    });
+    state.pickRevertStatusLoaded = false;
     return;
   }
 
+  const siblingLineIds = [...new Set(
+    (siblingLines || []).map((line) => line.id).filter(Boolean)
+  )];
+
+  if (!siblingLineIds.length) return;
+
+  const { data, error } = await supabase
+    .rpc('admin_get_history_pick_revert_statuses')
+    .in('transaction_line_id', siblingLineIds)
+    .limit(Math.max(250, siblingLineIds.length));
+
+  if (error) {
+    console.warn('History visible PICK-line Revert status unavailable:', error);
+    (rows || []).forEach((row) => {
+      if (row.transaction_type === 'PICK') row.transaction_has_saved_pick_correction = true;
+    });
+    state.pickRevertStatusLoaded = false;
+    return;
+  }
+
+  const statusRows = data || [];
   state.pickRevertStatusByLine = new Map(
-    (data || []).map((row) => [String(row.transaction_line_id), row])
+    statusRows.map((row) => [String(row.transaction_line_id), row])
   );
+
+  const correctionProtectedTransactions = new Set();
+  const transactionByLineId = new Map(
+    (siblingLines || []).map((line) => [String(line.id), String(line.transaction_id)])
+  );
+
+  statusRows.forEach((status) => {
+    if (
+      Number(status.completed_correction_qty || 0) > 0
+      || Number(status.unresolved_correction_count || 0) > 0
+    ) {
+      const transactionId = transactionByLineId.get(String(status.transaction_line_id));
+      if (transactionId) correctionProtectedTransactions.add(transactionId);
+    }
+  });
+
+  (rows || []).forEach((row) => {
+    if (row.transaction_type === 'PICK') {
+      row.transaction_has_saved_pick_correction =
+        correctionProtectedTransactions.has(String(row.transaction_id));
+    }
+  });
 }
 
 async function loadHistoryPage(page = 1) {
@@ -11386,10 +11399,7 @@ async function loadHistoryPage(page = 1) {
     state.historyVNext.pageSize = pageSize;
     state.historyVNext.loaded = true;
 
-    await Promise.all([
-      loadVisibleHistoryTransactionSafety(rows),
-      loadVisibleHistoryRevertStatuses(rows)
-    ]);
+    await loadVisibleHistoryRevertStatuses(rows);
     renderHistory();
   } catch (error) {
     state.data.history = [];
