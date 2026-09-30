@@ -6812,26 +6812,14 @@ function physicalCountSkuSearchText(row) {
 }
 
 async function fetchCompleteInventorySnapshot() {
-  const pageSize = 1000;
-  const rows = [];
-  let offset = 0;
+  const { data, error } = await supabase.rpc('get_inventory_snapshot_v1');
+  if (error) throw error;
 
-  while (true) {
-    const { data, error } = await supabase
-      .from('v_inventory_search')
-      .select('*')
-      .order('location_sort_order', { ascending: true, nullsFirst: false })
-      .order('location_code')
-      .order('sku_name')
-      .range(offset, offset + pageSize - 1);
+  const result = data?.[0] || {};
+  const rows = Array.isArray(result.snapshot_rows) ? result.snapshot_rows : [];
 
-    if (error) throw error;
-
-    const page = data || [];
-    rows.push(...page);
-
-    if (page.length < pageSize) break;
-    offset += pageSize;
+  if (Number(result.row_count || 0) !== rows.length) {
+    throw new Error('Inventory snapshot row count mismatch. Refresh and try again.');
   }
 
   return rows;
