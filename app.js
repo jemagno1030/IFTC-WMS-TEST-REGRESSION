@@ -11298,6 +11298,42 @@ async function fetchHistoryVNextBatch(filters, limit, offset) {
   return data || [];
 }
 
+async function loadVisibleHistoryTransactionSafety(rows) {
+  if (!isAdminOrOwner()) return;
+
+  const transactionIds = [...new Set(
+    (rows || []).map((row) => row.transaction_id).filter(Boolean)
+  )];
+  if (!transactionIds.length) return;
+
+  const { data, error } = await supabase.rpc('admin_history_transaction_safety_v1', {
+    p_transaction_ids: transactionIds
+  });
+
+  if (error) {
+    console.warn('History visible transaction safety unavailable:', error);
+    // Fail closed for PICK generic correction. Read-only History remains available,
+    // but no PICK transaction on this page is treated as correction-safe.
+    (rows || []).forEach((row) => {
+      if (row.transaction_type === 'PICK') row.transaction_has_saved_pick_correction = true;
+    });
+    return;
+  }
+
+  const safetyByTransaction = new Map(
+    (data || []).map((row) => [String(row.transaction_id), row])
+  );
+
+  (rows || []).forEach((row) => {
+    const safety = safetyByTransaction.get(String(row.transaction_id));
+    if (safety) {
+      row.transaction_has_saved_pick_correction = Boolean(
+        safety.transaction_has_saved_pick_correction
+      );
+    }
+  });
+}
+
 async function loadVisibleHistoryRevertStatuses(rows) {
   state.pickRevertStatusByLine = new Map();
   state.pickRevertStatusLoaded = true;
@@ -11350,7 +11386,10 @@ async function loadHistoryPage(page = 1) {
     state.historyVNext.pageSize = pageSize;
     state.historyVNext.loaded = true;
 
-    await loadVisibleHistoryRevertStatuses(rows);
+    await Promise.all([
+      loadVisibleHistoryTransactionSafety(rows),
+      loadVisibleHistoryRevertStatuses(rows)
+    ]);
     renderHistory();
   } catch (error) {
     state.data.history = [];
