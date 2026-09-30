@@ -281,6 +281,15 @@ const state = {
     pageSize: 250,
     loaded: false
   },
+  historyVNext: {
+    total: 0,
+    filters: {},
+    page: 1,
+    pageSize: 250,
+    loaded: false,
+    activeTab: 'transactions',
+    auditLoaded: false
+  },
   pickRequestedCorrectionCount: 0,
   pickPendingReturnCount: 0,
   pickBlockingPendingReturnCount: 0,
@@ -857,7 +866,7 @@ function setupStaticEvents() {
     target.value = 'N/A';
     target.dispatchEvent(new Event('change', { bubbles: true }));
   }));
-  qsa('.export-btn').forEach((btn) => btn.addEventListener('click', () => exportDataset(btn.dataset.export)));
+  qsa('.export-btn').forEach((btn) => btn.addEventListener('click', () => void exportDataset(btn.dataset.export, btn)));
 
   $('uomc-load-source-btn')?.addEventListener('click', loadUomConversionSourceLots);
   $('uomc-source-lot')?.addEventListener('change', selectUomConversionLot);
@@ -1059,9 +1068,19 @@ function setupStaticEvents() {
   $('sku-health-search').addEventListener('input', renderSkuHealth);
   $('sku-health-filter').addEventListener('change', renderSkuHealth);
   $('container-search').addEventListener('input', renderContainers);
-  $('history-search').addEventListener('input', renderHistory);
-  $('history-exact-rack').addEventListener('click', () => toggleExactRackSearch('history-exact-rack', renderHistory));
-  $('history-type').addEventListener('change', renderHistory);
+  $('history-search').addEventListener('input', scheduleHistoryVNextReload);
+  $('history-exact-rack').addEventListener('click', () => toggleExactRackSearch('history-exact-rack', () => void loadHistoryPage(1)));
+  $('history-type').addEventListener('change', () => void loadHistoryPage(1));
+  $('history-prev').addEventListener('click', () => void changeHistoryVNextPage(-1));
+  $('history-next').addEventListener('click', () => void changeHistoryVNextPage(1));
+  $('history-tab-transactions').addEventListener('click', () => {
+    state.historyVNext.activeTab = 'transactions';
+    if (!state.historyVNext.loaded) void loadHistoryPage(1);
+  });
+  $('history-tab-audit').addEventListener('click', () => {
+    state.historyVNext.activeTab = 'audit';
+    void loadAuditHistoryTab(false);
+  });
 
   ['audit-user-filter','audit-remarks-filter','audit-reason-filter','audit-so-filter','audit-container-filter','audit-rack-filter']
     .forEach((id) => $(id).addEventListener('input', renderAuditHistory));
@@ -1661,7 +1680,8 @@ async function refreshCurrentScreen() {
         await loadSystemManager(true);
         break;
       case 'history':
-        await loadHistory(true);
+        if (state.historyVNext.activeTab === 'audit') await loadAuditHistoryTab(true);
+        else await loadHistory(true);
         break;
       case 'locations':
         await loadLocations(true);
@@ -2096,6 +2116,10 @@ function invalidateReports() {
   state.data.history = [];
   state.data.audit = [];
   state.data.auditFiltered = [];
+  state.historyVNext.total = 0;
+  state.historyVNext.page = 1;
+  state.historyVNext.loaded = false;
+  state.historyVNext.auditLoaded = false;
   state.pickRevertStatusByLine = new Map();
   state.pickRevertStatusLoaded = false;
   state.data.rackMap = [];
@@ -11238,96 +11262,171 @@ async function loadPagedPickRevertStatuses() {
   return { data: rows, error: null };
 }
 
+
+let historyVNextSearchTimer = null;
+
+function historyVNextFilters() {
+  return {
+    search: $('history-search').value.trim(),
+    type: $('history-type').value,
+    exactRack: exactRackSearchEnabled('history-exact-rack')
+  };
+}
+
+function historyVNextFiltersEqual(a = {}, b = {}) {
+  return String(a.search || '') === String(b.search || '')
+    && String(a.type || '') === String(b.type || '')
+    && Boolean(a.exactRack) === Boolean(b.exactRack);
+}
+
+function historyVNextRpcArgs(filters, limit, offset) {
+  return {
+    p_search: filters.search || null,
+    p_transaction_type: filters.type || null,
+    p_exact_rack: Boolean(filters.exactRack),
+    p_limit: limit,
+    p_offset: offset
+  };
+}
+
+async function fetchHistoryVNextBatch(filters, limit, offset) {
+  const { data, error } = await supabase.rpc(
+    'get_history_vnext_v1',
+    historyVNextRpcArgs(filters, limit, offset)
+  );
+  if (error) throw error;
+  return data || [];
+}
+
+async function loadVisibleHistoryRevertStatuses(rows) {
+  state.pickRevertStatusByLine = new Map();
+  state.pickRevertStatusLoaded = true;
+
+  if (!isAdminOrOwner()) return;
+
+  const lineIds = [...new Set(
+    (rows || [])
+      .filter((row) => row.transaction_type === 'PICK' && Number(row.signed_qty) < 0 && row.line_id)
+      .map((row) => row.line_id)
+  )];
+
+  if (!lineIds.length) return;
+
+  const { data, error } = await supabase.rpc('admin_get_history_pick_revert_statuses_v2', {
+    p_transaction_line_ids: lineIds
+  });
+
+  if (error) {
+    console.warn('History visible PICK-line Revert status unavailable:', error);
+    return;
+  }
+
+  state.pickRevertStatusByLine = new Map(
+    (data || []).map((row) => [String(row.transaction_line_id), row])
+  );
+}
+
+async function loadHistoryPage(page = 1) {
+  const filters = historyVNextFilters();
+  const pageSize = 250;
+  const requestedPage = Math.max(1, Number(page || 1));
+  const offset = (requestedPage - 1) * pageSize;
+
+  if ($('history-count')) $('history-count').textContent = 'Loading Transaction History…';
+
+  try {
+    const rows = await fetchHistoryVNextBatch(filters, pageSize, offset);
+    const total = rows.length ? Number(rows[0].total_count || 0) : 0;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+    if (requestedPage > totalPages && total > 0) {
+      return await loadHistoryPage(totalPages);
+    }
+
+    state.data.history = rows;
+    state.historyVNext.total = total;
+    state.historyVNext.filters = { ...filters };
+    state.historyVNext.page = Math.min(requestedPage, totalPages);
+    state.historyVNext.pageSize = pageSize;
+    state.historyVNext.loaded = true;
+
+    await loadVisibleHistoryRevertStatuses(rows);
+    renderHistory();
+  } catch (error) {
+    state.data.history = [];
+    state.historyVNext.total = 0;
+    state.historyVNext.filters = { ...filters };
+    state.historyVNext.page = 1;
+    state.historyVNext.pageSize = pageSize;
+    state.historyVNext.loaded = false;
+    state.pickRevertStatusByLine = new Map();
+    state.pickRevertStatusLoaded = false;
+
+    if ($('history-count')) $('history-count').textContent = `Transaction History could not be loaded: ${friendlyError(error)}`;
+    $('history-table').innerHTML = emptyState('Transaction History is unavailable.');
+    if ($('history-page')) $('history-page').textContent = 'Page —';
+    if ($('history-prev')) $('history-prev').disabled = true;
+    if ($('history-next')) $('history-next').disabled = true;
+    toast(friendlyError(error), 'error');
+  }
+}
+
 async function loadHistory(force = false) {
+  const filters = historyVNextFilters();
+  const sameFilters = historyVNextFiltersEqual(filters, state.historyVNext.filters);
+
+  if (!force && state.historyVNext.loaded && sameFilters) {
+    return renderHistory();
+  }
+
+  const page = force && sameFilters ? state.historyVNext.page : 1;
+  return loadHistoryPage(page || 1);
+}
+
+function scheduleHistoryVNextReload() {
+  clearTimeout(historyVNextSearchTimer);
+  historyVNextSearchTimer = setTimeout(() => void loadHistoryPage(1), 300);
+}
+
+async function changeHistoryVNextPage(delta) {
+  const report = state.historyVNext;
+  if (!report?.loaded) return;
+
+  const totalPages = Math.max(1, Math.ceil(Number(report.total || 0) / Number(report.pageSize || 250)));
+  const nextPage = Math.min(totalPages, Math.max(1, Number(report.page || 1) + Number(delta || 0)));
+  if (nextPage === report.page) return;
+
+  await loadHistoryPage(nextPage);
+}
+
+async function loadAuditHistoryTab(force = false) {
   ensureAuditCoverageDefaults();
 
-  const revertStatusReady = !isAdminOrOwner() || state.pickRevertStatusLoaded;
-  if (!force && state.data.history.length && state.data.audit.length && revertStatusReady) {
+  if (!force && state.historyVNext.auditLoaded) {
     populateAuditActionFilter();
-    renderHistory();
     return renderAuditHistory();
   }
 
-  // Transaction History is loaded in complete 1,000-row pages so PostgREST's
-  // per-request row ceiling cannot silently cut off older retained transactions.
-  // The V4 historical remark overlays use the same paged read-only loader so they
-  // remain complete even when retained history grows beyond one large request.
-  // System Audit keeps its existing independent 90-day paged loader.
-  //
-  // Admin/Owner receives the complete read-only PICK-line Revert status snapshot
-  // in stable 1,000-row pages. This prevents PostgREST's per-request row ceiling
-  // from silently hiding Revert controls on newer retained PICK lines.
-  // Failure remains optional and must never stop normal History/Audit from loading.
-  const revertStatusPromise = isAdminOrOwner()
-    ? loadPagedPickRevertStatuses()
-    : Promise.resolve({ data: [], error: null });
-
-  const [historyRes, auditRows, revertStatusRes, lineRemarkRes, transactionRemarkRes, repairRes] = await Promise.all([
-    loadPagedHistoryDataset('v_history_details', '*', [
-      { column: 'created_at', ascending: false },
-      { column: 'line_no', ascending: true },
-      { column: 'transaction_id', ascending: true },
-      { column: 'line_id', ascending: true }
-    ]),
-    loadAuditHistory90Days(),
-    revertStatusPromise,
-    loadPagedHistoryDataset('transaction_line_user_remarks', 'transaction_line_id,remark,remark_context,remark_source', [
-      { column: 'transaction_line_id', ascending: true }
-    ]),
-    loadPagedHistoryDataset('transaction_user_remarks', 'transaction_id,remark,remark_context', [
-      { column: 'transaction_id', ascending: true }
-    ]),
-    loadPagedHistoryDataset('transaction_remark_scope_repairs', 'transaction_id,suppress_legacy_parent_note,suppress_legacy_line_note,repair_type', [
-      { column: 'transaction_id', ascending: true }
-    ])
-  ]);
-
-  if (historyRes.error) throw historyRes.error;
-
-  if (lineRemarkRes?.error) console.warn('Per-line user remarks unavailable:', lineRemarkRes.error);
-  if (transactionRemarkRes?.error) console.warn('Transaction user remarks unavailable:', transactionRemarkRes.error);
-  if (repairRes?.error) console.warn('Remark-scope repair overlays unavailable:', repairRes.error);
-
-  const lineRemarkById = new Map((lineRemarkRes?.data || []).map((row) => [String(row.transaction_line_id), row]));
-  const transactionRemarkById = new Map((transactionRemarkRes?.data || []).map((row) => [String(row.transaction_id), row]));
-  const repairByTransactionId = new Map((repairRes?.data || []).map((row) => [String(row.transaction_id), row]));
-
-  state.data.history = (historyRes.data || []).map((row) => {
-    const lineRemark = lineRemarkById.get(String(row.line_id));
-    const transactionRemark = transactionRemarkById.get(String(row.transaction_id));
-    const repair = repairByTransactionId.get(String(row.transaction_id));
-    return {
-      ...row,
-      user_line_remark: lineRemark?.remark || null,
-      user_line_remark_context: lineRemark?.remark_context || null,
-      user_line_remark_source: lineRemark?.remark_source || null,
-      user_transaction_remark: transactionRemark?.remark || null,
-      user_transaction_remark_context: transactionRemark?.remark_context || null,
-      remark_scope_repair_type: repair?.repair_type || null,
-      suppress_legacy_parent_note: Boolean(repair?.suppress_legacy_parent_note),
-      suppress_legacy_line_note: Boolean(repair?.suppress_legacy_line_note)
-    };
-  });
-  state.data.audit = auditRows || [];
-
-  if (isAdminOrOwner()) {
-    if (revertStatusRes?.error) {
-      console.warn('History PICK-line Revert status unavailable:', revertStatusRes.error);
-      state.pickRevertStatusByLine = new Map();
-    } else {
-      state.pickRevertStatusByLine = new Map(
-        (revertStatusRes?.data || []).map((row) => [String(row.transaction_line_id), row])
-      );
-    }
-    state.pickRevertStatusLoaded = true;
-  } else {
-    state.pickRevertStatusByLine = new Map();
-    state.pickRevertStatusLoaded = true;
+  if ($('audit-history-count')) {
+    $('audit-history-count').textContent = 'Loading retained System Audit Events…';
   }
 
-  populateAuditActionFilter();
-  renderHistory();
-  renderAuditHistory();
+  try {
+    const rows = await loadAuditHistory90Days();
+    state.data.audit = rows || [];
+    state.historyVNext.auditLoaded = true;
+    populateAuditActionFilter();
+    renderAuditHistory();
+  } catch (error) {
+    state.data.audit = [];
+    state.data.auditFiltered = [];
+    state.historyVNext.auditLoaded = false;
+    if ($('audit-history-count')) {
+      $('audit-history-count').textContent = `System Audit Events could not be loaded: ${friendlyError(error)}`;
+    }
+    $('audit-history-table').innerHTML = emptyState('System Audit Events are unavailable.');
+    toast(friendlyError(error), 'error');
+  }
 }
 
 function auditCoverageBounds() {
@@ -11575,10 +11674,10 @@ function clearAuditHistoryFilters() {
   renderAuditHistory();
 }
 
-function historyPickRevertActionHtml(row, transactionHasShipper) {
+function historyPickRevertActionHtml(row) {
   if (!isAdminOrOwner()) return '';
   if (row.transaction_type !== 'PICK' || Number(row.signed_qty) >= 0) return '';
-  if (transactionHasShipper.has(row.transaction_id)) return '';
+  if (row.transaction_has_shipper) return '';
 
   const status = state.pickRevertStatusByLine.get(String(row.line_id));
   if (!status) return '';
@@ -11598,54 +11697,39 @@ function historyPickRevertActionHtml(row, transactionHasShipper) {
 }
 
 function renderHistory() {
-  const term = $('history-search').value.trim().toLowerCase();
-  const type = $('history-type').value;
-  const exactRack = exactRackSearchEnabled('history-exact-rack');
-  const rows = state.data.history.filter((r) => {
-    const haystack = [r.tx_no, r.created_by_username, r.sales_order, r.sku_name, r.container_no, r.location_code, r.transaction_note, r.user_transaction_remark, r.user_line_remark, r.override_reason, r.edit_reason, r.line_note, r.shipper_box_no, r.shipper_status, r.shipper_action].join(' ').toLowerCase();
-    const searchMatches = !term || (exactRack
-      ? exactRackLocationMatches(r.location_code, term)
-      : haystack.includes(term));
-    return (!type || r.transaction_type === type) && searchMatches;
-  });
+  const rows = state.data.history || [];
+  const report = state.historyVNext || { total: 0, page: 1, pageSize: 250, filters: {} };
+  const total = Number(report.total || 0);
+  const pageSize = Number(report.pageSize || 250);
+  const page = Math.max(1, Number(report.page || 1));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const startLine = total ? ((page - 1) * pageSize) + 1 : 0;
+  const endLine = total ? Math.min(startLine + rows.length - 1, total) : 0;
+  const filters = report.filters || {};
+  const filterBits = [];
+  if (filters.type) filterBits.push(`Action: ${filters.type}`);
+  if (filters.search) filterBits.push(`${filters.exactRack ? 'Exact rack' : 'Search'}: ${filters.search}`);
 
-  // Use the complete loaded History, not only the currently filtered rows, when
-  // deciding whether a transaction contains Shipper lines. This avoids exposing
-  // generic correction/revert controls merely because a filter hid the Shipper row.
-  const transactionHasShipper = new Set(
-    (state.data.history || []).filter((r) => r.shipper_box_id).map((r) => r.transaction_id)
-  );
-  const transactionHasSavedPickCorrection = new Set(
-    (state.data.history || [])
-      .filter((r) => {
-        if (r.transaction_type !== 'PICK') return false;
-        const status = state.pickRevertStatusByLine.get(String(r.line_id));
-        return Boolean(status && (Number(status.completed_correction_qty || 0) > 0 || Number(status.unresolved_correction_count || 0) > 0));
-      })
-      .map((r) => r.transaction_id)
-  );
-  const transferAllTransactions = new Set(
-    (state.data.history || [])
-      .filter((r) => r.transaction_type === 'TRANSFER' && (
-        String(r.transaction_note || '').trim() === 'Whole source-rack / pallet transfer'
-        || String(r.line_note || '').startsWith('Whole source-rack / pallet transfer')
-        || String(r.shipper_action || '') === 'WHOLE_RACK_SHIPPER_TRANSFER'
-      ))
-      .map((r) => r.transaction_id)
-  );
+  if ($('history-count')) {
+    $('history-count').innerHTML =
+      `Showing <strong>${startLine.toLocaleString()}–${endLine.toLocaleString()}</strong> of <strong>${total.toLocaleString()}</strong> retained transaction line(s)` +
+      (filterBits.length ? ` · ${escapeHtml(filterBits.join(' · '))}` : '');
+  }
+  if ($('history-page')) $('history-page').textContent = `Page ${page.toLocaleString()} of ${totalPages.toLocaleString()}`;
+  if ($('history-prev')) $('history-prev').disabled = page <= 1 || !total;
+  if ($('history-next')) $('history-next').disabled = page >= totalPages || !total;
 
-  const firstLineByTx = new Set();
   $('history-table').innerHTML = rows.length ? `<table><thead><tr><th>Transaction</th><th>Action</th><th>User / time</th><th>SO</th><th>Location</th><th>SKU / container</th><th>Qty</th><th>Remarks</th><th>Flags</th><th></th></tr></thead><tbody>${rows.map((r) => {
-    const first = !firstLineByTx.has(r.transaction_id); firstLineByTx.add(r.transaction_id);
+    const first = Boolean(r.is_first_transaction_line);
     const flags = [
       r.fefo_overridden ? '<span class="pill override">FEFO override</span>' : '',
       r.barcode_bypassed ? '<span class="pill override">Supervisor barcode bypass</span>' : '',
       r.edited_at ? '<span class="pill">Corrected</span>' : ''
     ].filter(Boolean).join(' ');
 
-    const transactionProtected = transactionHasShipper.has(r.transaction_id);
-    const savedPickCorrectionProtected = r.transaction_type === 'PICK' && transactionHasSavedPickCorrection.has(r.transaction_id);
-    const transferAllSystemTrace = transferAllTransactions.has(r.transaction_id);
+    const transactionProtected = Boolean(r.transaction_has_shipper);
+    const savedPickCorrectionProtected = r.transaction_type === 'PICK' && Boolean(r.transaction_has_saved_pick_correction);
+    const transferAllSystemTrace = Boolean(r.transfer_all_system_trace);
     const rawTransactionNote = String(r.transaction_note || '').trim();
     const visibleLegacyLineNote = r.suppress_legacy_line_note ? '' : String(r.line_note || '').trim();
     const legacyTransferAllTransactionRemark = transferAllSystemTrace
@@ -11672,7 +11756,7 @@ function renderHistory() {
       : (first && transactionProtected
         ? '<small>Shipper transaction protected</small>'
         : (first && savedPickCorrectionProtected ? '<small>Saved Pick correction protected</small>' : ''));
-    const revertAction = historyPickRevertActionHtml(r, transactionHasShipper);
+    const revertAction = historyPickRevertActionHtml(r);
     const actions = [correctAction, revertAction].filter(Boolean).join(' ');
 
     return `<tr><td><strong>${escapeHtml(r.tx_no)}</strong></td><td>${escapeHtml(r.transaction_type)}</td>
@@ -12455,9 +12539,57 @@ function acceptScannedValue(rawValue) {
   toast(`Scanned: ${value}`, 'success');
 }
 
-function exportDataset(name) {
+
+function stripHistoryVNextMetadata(row) {
+  const {
+    total_count,
+    transaction_has_shipper,
+    transaction_has_saved_pick_correction,
+    transfer_all_system_trace,
+    is_first_transaction_line,
+    ...exportRow
+  } = row || {};
+  return exportRow;
+}
+
+async function fetchAllHistoryVNextRows(filters = { search: '', type: '', exactRack: false }) {
+  const pageSize = 1000;
+  const rows = [];
+  let offset = 0;
+  let total = 0;
+
+  while (true) {
+    const batch = await fetchHistoryVNextBatch(filters, pageSize, offset);
+    if (!batch.length) break;
+
+    if (!total) total = Number(batch[0].total_count || 0);
+    rows.push(...batch);
+
+    if (rows.length >= total || batch.length < pageSize) break;
+    offset += batch.length;
+  }
+
+  return rows;
+}
+
+async function exportDataset(name, button = null) {
   let rows = [];
   let filename = `${name}-${new Date().toISOString().slice(0, 10)}.csv`;
+
+  if (name === 'history') {
+    setBusy(button, true, 'Preparing CSV…');
+    try {
+      // Preserve the previous behavior: History CSV exports the complete retained
+      // Transaction History, independent of the current on-screen search/type filter.
+      rows = (await fetchAllHistoryVNextRows({ search: '', type: '', exactRack: false }))
+        .map(stripHistoryVNextMetadata);
+    } catch (error) {
+      return toast(`History export could not be prepared: ${friendlyError(error)}`, 'error');
+    } finally {
+      setBusy(button, false);
+    }
+  }
+
   if (name === 'inventory') rows = state.data.inventory;
   if (name === 'stockcard') {
     rows = state.data.stockCardExport;
@@ -12468,11 +12600,11 @@ function exportDataset(name) {
   if (name === 'containers') rows = state.data.containers;
   if (name === 'expiry') rows = state.data.expiry;
   if (name === 'nonfefo') rows = state.data.nonFefo;
-  if (name === 'history') rows = state.data.history;
   if (name === 'audit') {
     rows = state.data.auditFiltered;
     filename = `system-audit-filtered-${new Date().toISOString().slice(0, 10)}.csv`;
   }
+
   if (!rows.length) return toast('Load the report first; there is no data to export.', 'error');
   const columns = Object.keys(rows[0]);
   const csv = [columns.join(','), ...rows.map((r) => columns.map((c) => csvCell(r[c])).join(','))].join('\n');
