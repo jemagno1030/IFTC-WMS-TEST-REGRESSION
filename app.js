@@ -3521,20 +3521,69 @@ function printPickedSalesOrderReport() {
       #print-area { display:block !important; }
       html,body { background:#fff !important; color:#000 !important; }
     }
-    #print-area.picked-so-print { font-family:Arial,Helvetica,sans-serif; color:#000; font-size:7.5pt; }
+    #print-area.picked-so-print {
+      font-family:Arial,Helvetica,sans-serif;
+      color:#000;
+      background:#fff;
+      font-size:7.2pt;
+    }
+    #print-area.picked-so-print * { box-sizing:border-box; color:#000; }
     #print-area.picked-so-print h1 { margin:0 0 2mm; font-size:15pt; text-align:center; }
     #print-area.picked-so-print h2 { margin:0 0 4mm; font-size:11pt; text-align:center; }
-    #print-area.picked-so-print .report-meta { display:grid; grid-template-columns:1fr 1fr; gap:1.5mm 7mm; margin-bottom:4mm; }
-    #print-area.picked-so-print table { width:100%; border-collapse:collapse; table-layout:fixed; }
+    #print-area.picked-so-print .report-meta {
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:1.5mm 7mm;
+      margin-bottom:4mm;
+      line-height:1.2;
+    }
+    #print-area.picked-so-print table {
+      width:100%;
+      border-collapse:collapse;
+      table-layout:fixed;
+    }
     #print-area.picked-so-print thead { display:table-header-group; }
-    #print-area.picked-so-print tr { break-inside:avoid; page-break-inside:avoid; }
-    #print-area.picked-so-print th,#print-area.picked-so-print td { border:1px solid #000; padding:1.5mm 1.2mm; vertical-align:top; overflow-wrap:anywhere; }
-    #print-area.picked-so-print th { background:#eee !important; font-weight:800; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-    #print-area.picked-so-print .c-so{width:7%}.picked-so-print .c-po{width:7%}.picked-so-print .c-customer{width:12%}
-    #print-area.picked-so-print .c-picked{width:10%}.picked-so-print .c-tx{width:8%}.picked-so-print .c-rack{width:5%}
-    #print-area.picked-so-print .c-sku{width:22%}.picked-so-print .c-container{width:8%}.picked-so-print .c-expiry{width:7%}
-    #print-area.picked-so-print .c-uom{width:6%}.picked-so-print .c-qty{width:6%;text-align:right}
-    #print-area.picked-so-print .report-footer { margin-top:3mm; font-size:7pt; }
+    #print-area.picked-so-print tr {
+      break-inside:avoid;
+      page-break-inside:avoid;
+    }
+    #print-area.picked-so-print th,
+    #print-area.picked-so-print td {
+      border:1px solid #000;
+      padding:1.6mm 1.2mm;
+      vertical-align:top;
+      white-space:normal !important;
+      overflow:hidden;
+      overflow-wrap:anywhere !important;
+      word-break:break-word;
+      line-height:1.18;
+      height:auto !important;
+    }
+    #print-area.picked-so-print th {
+      font-size:7pt;
+      text-align:left;
+      background:#eee !important;
+      font-weight:800;
+      -webkit-print-color-adjust:exact;
+      print-color-adjust:exact;
+    }
+    #print-area.picked-so-print td { min-height:8mm; }
+    #print-area.picked-so-print .c-so{width:8%}
+    #print-area.picked-so-print .c-po{width:8%}
+    #print-area.picked-so-print .c-customer{width:13%}
+    #print-area.picked-so-print .c-picked{width:10%}
+    #print-area.picked-so-print .c-tx{width:9%}
+    #print-area.picked-so-print .c-rack{width:5%}
+    #print-area.picked-so-print .c-sku{width:22%}
+    #print-area.picked-so-print .c-container{width:8%}
+    #print-area.picked-so-print .c-expiry{width:7%}
+    #print-area.picked-so-print .c-uom{width:5%}
+    #print-area.picked-so-print .c-qty{width:5%;text-align:right}
+    #print-area.picked-so-print .report-footer {
+      margin-top:3mm;
+      font-size:7pt;
+      line-height:1.2;
+    }
   `;
   document.head.appendChild(style);
 
