@@ -1720,7 +1720,10 @@ async function loadScreen(name, force = false) {
     if (name === 'nonfefo') await loadNonFefoCompliance(force);
     if (name === 'users') await loadUsers(force);
     if (name === 'systemmanager') await loadSystemManager(force);
-    if (name === 'history') await loadHistory(force);
+    if (name === 'history') {
+      if (state.historyVNext.activeTab === 'audit') await loadAuditHistoryTab(force);
+      else await loadHistory(force);
+    }
     if (name === 'locations') await loadLocations(force);
   } catch (error) {
     toast(friendlyError(error), 'error');
