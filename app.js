@@ -288,7 +288,13 @@ const state = {
     pageSize: 250,
     loaded: false,
     activeTab: 'transactions',
-    auditLoaded: false
+    auditTotal: 0,
+    auditFilters: {},
+    auditPage: 1,
+    auditPageSize: 250,
+    auditLoaded: false,
+    auditActions: [],
+    auditActionsLoaded: false
   },
   pickRequestedCorrectionCount: 0,
   pickPendingReturnCount: 0,
@@ -1083,10 +1089,12 @@ function setupStaticEvents() {
   });
 
   ['audit-user-filter','audit-remarks-filter','audit-reason-filter','audit-so-filter','audit-container-filter','audit-rack-filter']
-    .forEach((id) => $(id).addEventListener('input', renderAuditHistory));
+    .forEach((id) => $(id).addEventListener('input', scheduleAuditHistoryVNextReload));
   ['audit-action-filter','audit-date-from','audit-date-to']
-    .forEach((id) => $(id).addEventListener('change', renderAuditHistory));
+    .forEach((id) => $(id).addEventListener('change', () => void loadAuditHistoryPage(1)));
   $('audit-clear-filters').addEventListener('click', clearAuditHistoryFilters);
+  $('audit-history-prev').addEventListener('click', () => void changeAuditHistoryVNextPage(-1));
+  $('audit-history-next').addEventListener('click', () => void changeAuditHistoryVNextPage(1));
   $('nonfefo-search').addEventListener('input', renderNonFefoCompliance);
   $('nonfefo-from').addEventListener('change', renderNonFefoCompliance);
   $('nonfefo-to').addEventListener('change', renderNonFefoCompliance);
@@ -2122,7 +2130,11 @@ function invalidateReports() {
   state.historyVNext.total = 0;
   state.historyVNext.page = 1;
   state.historyVNext.loaded = false;
+  state.historyVNext.auditTotal = 0;
+  state.historyVNext.auditPage = 1;
   state.historyVNext.auditLoaded = false;
+  state.historyVNext.auditActions = [];
+  state.historyVNext.auditActionsLoaded = false;
   state.pickRevertStatusByLine = new Map();
   state.pickRevertStatusLoaded = false;
   state.data.rackMap = [];
@@ -11451,34 +11463,164 @@ async function changeHistoryVNextPage(delta) {
   await loadHistoryPage(nextPage);
 }
 
-async function loadAuditHistoryTab(force = false) {
-  ensureAuditCoverageDefaults();
+let auditHistoryVNextFilterTimer = null;
 
-  if (!force && state.historyVNext.auditLoaded) {
-    populateAuditActionFilter();
-    return renderAuditHistory();
+function auditHistoryFilters() {
+  const bounds = ensureAuditCoverageDefaults();
+  return {
+    action: $('audit-action-filter').value,
+    user: $('audit-user-filter').value.trim(),
+    remarks: $('audit-remarks-filter').value.trim(),
+    reason: $('audit-reason-filter').value.trim(),
+    salesOrder: $('audit-so-filter').value.trim(),
+    container: $('audit-container-filter').value.trim(),
+    rack: normalizeLocation($('audit-rack-filter').value),
+    dateFrom: $('audit-date-from').value || bounds.minDate,
+    dateTo: $('audit-date-to').value || bounds.maxDate
+  };
+}
+
+function auditHistoryFiltersEqual(a = {}, b = {}) {
+  return ['action','user','remarks','reason','salesOrder','container','rack','dateFrom','dateTo']
+    .every((key) => String(a[key] || '') === String(b[key] || ''));
+}
+
+function auditHistoryRpcArgs(filters, limit, offset) {
+  return {
+    p_action: filters.action || null,
+    p_user: filters.user || null,
+    p_remarks: filters.remarks || null,
+    p_reason: filters.reason || null,
+    p_sales_order: filters.salesOrder || null,
+    p_container: filters.container || null,
+    p_rack: filters.rack || null,
+    p_date_from: filters.dateFrom || null,
+    p_date_to: filters.dateTo || null,
+    p_limit: limit,
+    p_offset: offset
+  };
+}
+
+async function fetchAuditHistoryVNextBatch(filters, limit, offset) {
+  const { data, error } = await supabase.rpc(
+    'get_audit_history_vnext_v1',
+    auditHistoryRpcArgs(filters, limit, offset)
+  );
+  if (error) throw error;
+  return data || [];
+}
+
+async function loadAuditActionOptions(force = false) {
+  if (!force && state.historyVNext.auditActionsLoaded) {
+    return populateAuditActionFilterVNext();
   }
+
+  const { data, error } = await supabase.rpc('get_audit_history_actions_v1');
+  if (error) throw error;
+
+  state.historyVNext.auditActions = (data || [])
+    .map((row) => String(row.action || '').trim())
+    .filter(Boolean);
+  state.historyVNext.auditActionsLoaded = true;
+  populateAuditActionFilterVNext();
+}
+
+function populateAuditActionFilterVNext() {
+  const select = $('audit-action-filter');
+  if (!select) return;
+
+  const current = select.value;
+  const actions = state.historyVNext.auditActions || [];
+  select.innerHTML = '<option value="">All actions</option>' +
+    actions.map((action) => `<option value="${escapeHtml(action)}">${escapeHtml(action)}</option>`).join('');
+
+  if (actions.includes(current)) select.value = current;
+  else if (!current) select.value = '';
+}
+
+async function loadAuditHistoryPage(page = 1) {
+  const filters = auditHistoryFilters();
+  const pageSize = 250;
+  const requestedPage = Math.max(1, Number(page || 1));
+  const offset = (requestedPage - 1) * pageSize;
 
   if ($('audit-history-count')) {
     $('audit-history-count').textContent = 'Loading retained System Audit Events…';
   }
 
   try {
-    const rows = await loadAuditHistory90Days();
-    state.data.audit = rows || [];
+    const rows = await fetchAuditHistoryVNextBatch(filters, pageSize, offset);
+    const total = rows.length ? Number(rows[0].total_count || 0) : 0;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+    if (requestedPage > totalPages && total > 0) {
+      return await loadAuditHistoryPage(totalPages);
+    }
+
+    state.data.audit = rows;
+    state.data.auditFiltered = rows;
+    state.historyVNext.auditTotal = total;
+    state.historyVNext.auditFilters = { ...filters };
+    state.historyVNext.auditPage = Math.min(requestedPage, totalPages);
+    state.historyVNext.auditPageSize = pageSize;
     state.historyVNext.auditLoaded = true;
-    populateAuditActionFilter();
     renderAuditHistory();
   } catch (error) {
     state.data.audit = [];
     state.data.auditFiltered = [];
+    state.historyVNext.auditTotal = 0;
+    state.historyVNext.auditFilters = { ...filters };
+    state.historyVNext.auditPage = 1;
+    state.historyVNext.auditPageSize = pageSize;
     state.historyVNext.auditLoaded = false;
+
     if ($('audit-history-count')) {
       $('audit-history-count').textContent = `System Audit Events could not be loaded: ${friendlyError(error)}`;
     }
     $('audit-history-table').innerHTML = emptyState('System Audit Events are unavailable.');
+    if ($('audit-history-page')) $('audit-history-page').textContent = 'Page —';
+    if ($('audit-history-prev')) $('audit-history-prev').disabled = true;
+    if ($('audit-history-next')) $('audit-history-next').disabled = true;
     toast(friendlyError(error), 'error');
   }
+}
+
+async function loadAuditHistoryTab(force = false) {
+  ensureAuditCoverageDefaults();
+  const filters = auditHistoryFilters();
+  const sameFilters = auditHistoryFiltersEqual(filters, state.historyVNext.auditFilters);
+
+  try {
+    await loadAuditActionOptions(force && !state.historyVNext.auditActionsLoaded);
+  } catch (error) {
+    console.warn('Audit action options unavailable:', error);
+  }
+
+  if (!force && state.historyVNext.auditLoaded && sameFilters) {
+    return renderAuditHistory();
+  }
+
+  const page = force && sameFilters ? state.historyVNext.auditPage : 1;
+  return loadAuditHistoryPage(page || 1);
+}
+
+function scheduleAuditHistoryVNextReload() {
+  clearTimeout(auditHistoryVNextFilterTimer);
+  auditHistoryVNextFilterTimer = setTimeout(() => void loadAuditHistoryPage(1), 300);
+}
+
+async function changeAuditHistoryVNextPage(delta) {
+  if (!state.historyVNext.auditLoaded) return;
+  const totalPages = Math.max(
+    1,
+    Math.ceil(Number(state.historyVNext.auditTotal || 0) / Number(state.historyVNext.auditPageSize || 250))
+  );
+  const nextPage = Math.min(
+    totalPages,
+    Math.max(1, Number(state.historyVNext.auditPage || 1) + Number(delta || 0))
+  );
+  if (nextPage === state.historyVNext.auditPage) return;
+  await loadAuditHistoryPage(nextPage);
 }
 
 function auditCoverageBounds() {
@@ -11723,7 +11865,7 @@ function clearAuditHistoryFilters() {
   $('audit-date-from').value = bounds.minDate;
   $('audit-date-to').value = bounds.maxDate;
 
-  renderAuditHistory();
+  void loadAuditHistoryPage(1);
 }
 
 function historyPickRevertActionHtml(row) {
@@ -11900,16 +12042,26 @@ function auditEventRemarks(row) {
 }
 
 function renderAuditHistory() {
-  const rows = filteredAuditHistoryRows();
+  const rows = state.data.audit || [];
   state.data.auditFiltered = rows;
 
   const bounds = ensureAuditCoverageDefaults();
-  const loaded = state.data.audit.length;
-  const fromDate = $('audit-date-from').value || bounds.minDate;
-  const toDate = $('audit-date-to').value || bounds.maxDate;
+  const filters = state.historyVNext.auditFilters || auditHistoryFilters();
+  const total = Number(state.historyVNext.auditTotal || 0);
+  const pageSize = Number(state.historyVNext.auditPageSize || 250);
+  const page = Math.max(1, Number(state.historyVNext.auditPage || 1));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const startLine = total ? ((page - 1) * pageSize) + 1 : 0;
+  const endLine = total ? Math.min(startLine + rows.length - 1, total) : 0;
+  const fromDate = filters.dateFrom || bounds.minDate;
+  const toDate = filters.dateTo || bounds.maxDate;
 
   $('audit-history-count').innerHTML =
-    `Showing <strong>${rows.length.toLocaleString()}</strong> of <strong>${loaded.toLocaleString()}</strong> retained audit event(s) loaded for the last 90 calendar days · Coverage filter: <strong>${escapeHtml(fromDate)}</strong> to <strong>${escapeHtml(toDate)}</strong>.`;
+    `Showing <strong>${startLine.toLocaleString()}–${endLine.toLocaleString()}</strong> of <strong>${total.toLocaleString()}</strong> matching retained audit event(s) · Coverage: <strong>${escapeHtml(fromDate)}</strong> to <strong>${escapeHtml(toDate)}</strong>.`;
+
+  if ($('audit-history-page')) $('audit-history-page').textContent = `Page ${page.toLocaleString()} of ${totalPages.toLocaleString()}`;
+  if ($('audit-history-prev')) $('audit-history-prev').disabled = page <= 1 || !total;
+  if ($('audit-history-next')) $('audit-history-next').disabled = page >= totalPages || !total;
 
   $('audit-history-table').innerHTML = rows.length ? `<table><thead><tr><th>Time</th><th>Action</th><th>User</th><th>Entity</th><th>Remarks</th><th>Reason</th><th>Stored details</th></tr></thead><tbody>${rows.map((r) => `<tr>
     <td>${fmtDateTime(r.created_at)}</td><td>${escapeHtml(r.action)}</td><td>${escapeHtml(r.username || '—')}</td><td>${escapeHtml(r.entity_type)} ${escapeHtml(r.entity_id || '')}</td><td class="wrap">${escapeHtml(auditEventRemarks(r) || '—')}</td><td class="wrap">${escapeHtml(r.reason || '—')}</td>
@@ -12624,6 +12776,26 @@ async function fetchAllHistoryVNextRows(filters = { search: '', type: '', exactR
   return rows;
 }
 
+async function fetchAllAuditHistoryVNextRows(filters) {
+  const pageSize = 1000;
+  const rows = [];
+  let offset = 0;
+  let total = 0;
+
+  while (true) {
+    const batch = await fetchAuditHistoryVNextBatch(filters, pageSize, offset);
+    if (!batch.length) break;
+
+    if (!total) total = Number(batch[0].total_count || 0);
+    rows.push(...batch);
+
+    if (rows.length >= total || batch.length < pageSize) break;
+    offset += batch.length;
+  }
+
+  return rows.map(({ total_count, ...row }) => row);
+}
+
 async function exportDataset(name, button = null) {
   let rows = [];
   let filename = `${name}-${new Date().toISOString().slice(0, 10)}.csv`;
@@ -12653,8 +12825,17 @@ async function exportDataset(name, button = null) {
   if (name === 'expiry') rows = state.data.expiry;
   if (name === 'nonfefo') rows = state.data.nonFefo;
   if (name === 'audit') {
-    rows = state.data.auditFiltered;
-    filename = `system-audit-filtered-${new Date().toISOString().slice(0, 10)}.csv`;
+    setBusy(button, true, 'Preparing CSV…');
+    try {
+      rows = await fetchAllAuditHistoryVNextRows(
+        state.historyVNext.auditFilters || auditHistoryFilters()
+      );
+      filename = `system-audit-filtered-${new Date().toISOString().slice(0, 10)}.csv`;
+    } catch (error) {
+      return toast(`Audit export could not be prepared: ${friendlyError(error)}`, 'error');
+    } finally {
+      setBusy(button, false);
+    }
   }
 
   if (!rows.length) return toast('Load the report first; there is no data to export.', 'error');
