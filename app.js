@@ -11055,6 +11055,8 @@ function usageRow(label, valueText, limitText, percent, note = '') {
   </div>`;
 }
 
+const SUPABASE_EGRESS_LIMIT_GB = 5;
+const SUPABASE_CACHED_EGRESS_LIMIT_GB = 5;
 const SUPABASE_LOGS_INGEST_LIMIT_GB = 5;
 const SUPABASE_LOGS_QUERY_LIMIT_GB = 1000;
 
@@ -11156,7 +11158,7 @@ function manualUsageCard(label, field, limitGb, readings = []) {
 }
 
 async function loadManualSupabaseUsageReadings() {
-  const { data, error } = await supabase.rpc('get_supabase_usage_manual_readings_v1', { p_limit: 32 });
+  const { data, error } = await supabase.rpc('get_supabase_usage_manual_readings_v2', { p_limit: 32 });
   if (error) throw error;
   return Array.isArray(data) ? data : [];
 }
@@ -11169,12 +11171,17 @@ function renderSystemManagerUsageGrid(row, readings = []) {
   const mauLimit = Number(row.mau_limit || 50000);
 
   $('system-manager-usage-grid').innerHTML = [
-    usageRow(
-      'Egress',
-      'Supabase Usage page',
-      '5 GB',
-      0,
-      'Exact billing-cycle Egress is platform analytics and is not safely exposed to this browser-only WMS.'
+    manualUsageCard(
+      'Egress (uncached)',
+      'egress_gb',
+      SUPABASE_EGRESS_LIMIT_GB,
+      readings
+    ),
+    manualUsageCard(
+      'Cached Egress',
+      'cached_egress_gb',
+      SUPABASE_CACHED_EGRESS_LIMIT_GB,
+      readings
     ),
     manualUsageCard(
       'Logs Ingest',
@@ -11220,6 +11227,8 @@ function openSupabaseUsageLink() {
 function openSupabaseUsageReadingDialog() {
   if (!isAdminOrOwner()) return toast('Admin or Owner access is required.', 'error');
   const latest = state.supabaseUsageReadings?.[0] || null;
+  $('system-usage-reading-egress').value = latest ? Number(latest.egress_gb || 0) : '';
+  $('system-usage-reading-cached-egress').value = latest ? Number(latest.cached_egress_gb || 0) : '';
   $('system-usage-reading-ingest').value = latest ? Number(latest.logs_ingest_gb || 0) : '';
   $('system-usage-reading-query').value = latest ? Number(latest.logs_query_gb || 0) : '';
   $('system-usage-reading-dialog').showModal();
@@ -11229,15 +11238,24 @@ async function submitSupabaseUsageReading(event) {
   event.preventDefault();
   if (!isAdminOrOwner()) return toast('Admin or Owner access is required.', 'error');
 
+  const egress = Number($('system-usage-reading-egress').value);
+  const cachedEgress = Number($('system-usage-reading-cached-egress').value);
   const ingest = Number($('system-usage-reading-ingest').value);
   const query = Number($('system-usage-reading-query').value);
-  if (!Number.isFinite(ingest) || ingest < 0 || !Number.isFinite(query) || query < 0) {
-    return toast('Enter valid non-negative GB values for both Logs Ingest and Logs Query.', 'error');
+  if (
+    !Number.isFinite(egress) || egress < 0
+    || !Number.isFinite(cachedEgress) || cachedEgress < 0
+    || !Number.isFinite(ingest) || ingest < 0
+    || !Number.isFinite(query) || query < 0
+  ) {
+    return toast('Enter valid non-negative GB values for Egress, Cached Egress, Logs Ingest, and Logs Query.', 'error');
   }
 
   const button = $('system-usage-reading-save');
   setBusy(button, true, 'Saving…');
-  const { error } = await supabase.rpc('save_supabase_usage_manual_reading_v1', {
+  const { error } = await supabase.rpc('save_supabase_usage_manual_reading_v2', {
+    p_egress_gb: egress,
+    p_cached_egress_gb: cachedEgress,
     p_logs_ingest_gb: ingest,
     p_logs_query_gb: query
   });
@@ -11290,7 +11308,7 @@ async function loadSystemManager(force = false) {
   };
   renderHistoryRetentionButtons(retentionMonths);
 
-  $('system-manager-checked-at').textContent = `Project metrics checked: ${fmtDateTime(row.checked_at)} · Logs Ingest/Query cards use the latest manually saved Supabase Usage reading. Recommended update: once daily; 48+ hours is aging and 72+ hours is stale.`;
+  $('system-manager-checked-at').textContent = `Project metrics checked: ${fmtDateTime(row.checked_at)} · Egress and Logs cards use the latest manually saved Supabase Usage reading. Recommended update: once daily; 48+ hours is aging and 72+ hours is stale.`;
   $('system-manager-retention-status').innerHTML = `
     <strong>Automatic retention:</strong> ${row.retention_job_active ? 'Enabled' : 'Not active'} · ${retentionMonths} month${retentionMonths === 1 ? '' : 's'}<br>
     <strong>Oldest retained month begins:</strong> ${escapeHtml(row.retention_cutoff_date || '—')} · current partial month is also retained<br>
