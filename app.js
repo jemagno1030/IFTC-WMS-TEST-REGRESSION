@@ -11232,8 +11232,12 @@ function openSupabaseUsageReadingDialog() {
     const row = readings.find((reading) => reading?.[field] !== null && reading?.[field] !== undefined);
     return row ? Number(row[field]) : '';
   };
-  $('system-usage-reading-egress').value = latestValue('egress_gb');
-  $('system-usage-reading-cached-egress').value = latestValue('cached_egress_gb');
+  const latestUncachedEgress = latestValue('egress_gb');
+  const latestCachedEgress = latestValue('cached_egress_gb');
+  $('system-usage-reading-egress').value = latestUncachedEgress === '' || latestCachedEgress === ''
+    ? ''
+    : Number(latestUncachedEgress) + Number(latestCachedEgress);
+  $('system-usage-reading-cached-egress').value = latestCachedEgress;
   $('system-usage-reading-ingest').value = latestValue('logs_ingest_gb');
   $('system-usage-reading-query').value = latestValue('logs_query_gb');
   $('system-usage-reading-dialog').showModal();
@@ -11243,18 +11247,22 @@ async function submitSupabaseUsageReading(event) {
   event.preventDefault();
   if (!isAdminOrOwner()) return toast('Admin or Owner access is required.', 'error');
 
-  const egress = Number($('system-usage-reading-egress').value);
+  const totalEgress = Number($('system-usage-reading-egress').value);
   const cachedEgress = Number($('system-usage-reading-cached-egress').value);
   const ingest = Number($('system-usage-reading-ingest').value);
   const query = Number($('system-usage-reading-query').value);
   if (
-    !Number.isFinite(egress) || egress < 0
+    !Number.isFinite(totalEgress) || totalEgress < 0
     || !Number.isFinite(cachedEgress) || cachedEgress < 0
     || !Number.isFinite(ingest) || ingest < 0
     || !Number.isFinite(query) || query < 0
   ) {
-    return toast('Enter valid non-negative GB values for Egress, Cached Egress, Logs Ingest, and Logs Query.', 'error');
+    return toast('Enter valid non-negative GB values for Total Egress, Cached Egress, Logs Ingest, and Logs Query.', 'error');
   }
+  if (cachedEgress > totalEgress) {
+    return toast('Cached Egress cannot be greater than Total Egress. Check the Supabase Usage values.', 'error');
+  }
+  const egress = totalEgress - cachedEgress;
 
   const button = $('system-usage-reading-save');
   setBusy(button, true, 'Saving…');
