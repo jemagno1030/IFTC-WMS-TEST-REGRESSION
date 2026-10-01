@@ -11093,7 +11093,8 @@ function fmtReadingAge(ageHours) {
 }
 
 function manualUsageCard(label, field, limitGb, readings = []) {
-  const latest = readings?.[0] || null;
+  const fieldReadings = (readings || []).filter((reading) => reading?.[field] !== null && reading?.[field] !== undefined);
+  const latest = fieldReadings[0] || null;
   if (!latest) {
     return `<div class="card usage-monitor-card usage-status-neutral" style="padding:16px">
       <div class="usage-monitor-head">
@@ -11111,7 +11112,7 @@ function manualUsageCard(label, field, limitGb, readings = []) {
   const displayPercent = Math.max(0, Math.min(100, rawPercent));
   const status = manualUsageStatus(rawPercent);
   const freshness = manualUsageFreshness(latest.recorded_at);
-  const previous = readings?.[1] || null;
+  const previous = fieldReadings?.[1] || null;
   let trendText = 'Save another reading later to calculate change and 30-day run rate.';
 
   if (previous) {
@@ -11226,11 +11227,15 @@ function openSupabaseUsageLink() {
 
 function openSupabaseUsageReadingDialog() {
   if (!isAdminOrOwner()) return toast('Admin or Owner access is required.', 'error');
-  const latest = state.supabaseUsageReadings?.[0] || null;
-  $('system-usage-reading-egress').value = latest ? Number(latest.egress_gb || 0) : '';
-  $('system-usage-reading-cached-egress').value = latest ? Number(latest.cached_egress_gb || 0) : '';
-  $('system-usage-reading-ingest').value = latest ? Number(latest.logs_ingest_gb || 0) : '';
-  $('system-usage-reading-query').value = latest ? Number(latest.logs_query_gb || 0) : '';
+  const readings = state.supabaseUsageReadings || [];
+  const latestValue = (field) => {
+    const row = readings.find((reading) => reading?.[field] !== null && reading?.[field] !== undefined);
+    return row ? Number(row[field]) : '';
+  };
+  $('system-usage-reading-egress').value = latestValue('egress_gb');
+  $('system-usage-reading-cached-egress').value = latestValue('cached_egress_gb');
+  $('system-usage-reading-ingest').value = latestValue('logs_ingest_gb');
+  $('system-usage-reading-query').value = latestValue('logs_query_gb');
   $('system-usage-reading-dialog').showModal();
 }
 
