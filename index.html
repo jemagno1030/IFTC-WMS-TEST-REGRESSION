@@ -1277,7 +1277,7 @@
             <button id="system-manager-refresh-btn" class="secondary" type="button">Refresh usage</button>
           </div>
           <div class="info-box">
-            <strong>Logs monitoring:</strong> Supabase's current included reference allowances are <strong>5 GB Logs Ingest</strong> and <strong>1,000 GB Logs Query</strong>. These two cards use readings manually entered by an Admin/Owner from the official Supabase Usage page. The WMS does <strong>not</strong> query Logs Explorer or the Management API to estimate them, so the monitoring itself does not consume Logs Query allowance.
+            <strong>Usage monitoring:</strong> Supabase's current Free reference allowances are <strong>5 GB Egress (uncached)</strong>, <strong>5 GB Cached Egress</strong>, <strong>5 GB Logs Ingest</strong>, and <strong>1,000 GB Logs Query</strong>. These cards use readings manually entered by an Admin/Owner from the official Supabase Usage page. The WMS does <strong>not</strong> query Logs Explorer or the Management API to estimate them.
           </div>
           <p id="system-manager-checked-at" class="small-note">Not checked yet.</p>
           <div id="system-manager-usage-grid" class="kpi-grid"></div>
@@ -1657,6 +1657,14 @@
         Open <strong>Supabase → Usage</strong> and enter the current actual values shown there. Save the values in <strong>GB</strong>. The WMS will calculate percentage, status color, change, daily rate, 30-day run rate, and reading freshness.
       </div>
       <div class="form-grid two">
+        <label>Egress used (GB) *
+          <input id="system-usage-reading-egress" type="number" min="0" step="0.001" inputmode="decimal" required />
+          <span class="small-note">Use the uncached Egress value. Reference allowance: 5 GB</span>
+        </label>
+        <label>Cached Egress used (GB) *
+          <input id="system-usage-reading-cached-egress" type="number" min="0" step="0.001" inputmode="decimal" required />
+          <span class="small-note">Reference allowance: 5 GB</span>
+        </label>
         <label>Logs Ingest used (GB) *
           <input id="system-usage-reading-ingest" type="number" min="0" step="0.001" inputmode="decimal" required />
           <span class="small-note">Reference allowance: 5 GB</span>
@@ -1667,10 +1675,10 @@
         </label>
       </div>
       <div class="warning-box">
-        Do not enter percentages. Example: if Supabase shows 0.65 GB Logs Ingest and 12.4 GB Logs Query, enter <strong>0.65</strong> and <strong>12.4</strong>.
+        Enter usage values in GB, not percentages. For Egress, do <strong>not</strong> enter Supabase's combined Total Egress chart if it includes cached traffic; use the separate uncached Egress and Cached Egress values so each is compared with its own 5 GB quota.
       </div>
       <button id="system-usage-reading-save" class="primary" type="submit">SAVE USAGE READING</button>
-      <p class="small-note">Only two usage numbers, the save time, and the WMS user who entered them are stored. No Supabase logs are queried by this action.</p>
+      <p class="small-note">Only four usage numbers, the save time, and the WMS user who entered them are stored. No Supabase logs are queried by this action.</p>
     </form>
   </dialog>
 
@@ -1872,7 +1880,7 @@
   </script>
 
   <script src="config.js"></script>
-  <script type="module" src="app.js?v=20261001-supabase-usage-phase15-v1"></script>
+  <script type="module" src="app.js?v=20261001-supabase-usage-phase15-v2"></script>
   <script type="module" src="receiving-v1.js?v=20260929-receiving-putaway-controls-v1"></script>
 </body>
 </html>
